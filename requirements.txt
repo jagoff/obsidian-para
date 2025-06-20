@@ -1,9 +1,7 @@
-chromadb>=0.4.0
-gradio>=4.0.0
-sentence-transformers>=2.2.0
-ollama>=0.1.0
-rich>=13.0.0
-numpy>=1.24.0
-plotly>=5.0.0
-torch>=2.0.0
-transformers>=4.30.0 
+typer[all]==0.12.3
+rich==13.7.1
+prompt-toolkit>=3.0.0
+sentence-transformers==2.7.0
+chromadb==0.4.24
+numpy<2.0
+ollama>=0.2.0

@@ -10,6 +10,9 @@ import time
 import json
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
+import tty
+import termios
+import select
 
 # Try to import required packages
 try:
@@ -23,6 +26,7 @@ try:
     from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn
     import plotly.graph_objects as go
     import plotly.express as px
+    from rich.console import Group
 except ImportError as e:
     print(f"Installing required packages: {e}")
     import subprocess
@@ -38,6 +42,7 @@ except ImportError as e:
     from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn
     import plotly.graph_objects as go
     import plotly.express as px
+    from rich.console import Group
 
 console = Console()
 
@@ -246,44 +251,35 @@ def create_category_table(stats: Dict) -> Table:
     table.add_column("Count", style="magenta", justify="right")
     table.add_column("Percentage", style="green", justify="right")
     
-    total = stats["total_notes"]
-    if total > 0:
-        for category, count in stats["categories"].items():
+    total = stats.get("total_notes", 0)
+    categories = stats.get("categories", {})
+    
+    if total > 0 and categories:
+        for category, count in categories.items():
             percentage = (count / total * 100) if total > 0 else 0
             table.add_row(
-                category.title(),
+                category.capitalize(),
                 str(count),
                 f"{percentage:.1f}%"
             )
-        table.add_row("Total", str(total), "100%")
-    else:
-        table.add_row("No notes processed yet", "0", "0%")
-    
+            
     return table
 
 def create_activity_table(activity: List[Dict]) -> Table:
-    """Create a table showing recent activity"""
-    table = Table(title="📝 Recent Activity")
-    table.add_column("Time", style="cyan", no_wrap=True)
-    table.add_column("File", style="magenta")
-    table.add_column("Category", style="green")
-    table.add_column("Words", style="yellow", justify="right")
+    """Create a table for recent activity"""
+    table = Table(title="⏱️ Recent Activity")
+    table.add_column("Filename", style="cyan", no_wrap=True)
+    table.add_column("Category", style="magenta")
+    table.add_column("Timestamp", style="green")
     
-    for item in activity:
-        # Format timestamp
-        try:
-            timestamp = datetime.fromisoformat(item["added_at"].replace('Z', '+00:00'))
-            time_str = timestamp.strftime("%H:%M:%S")
-        except:
-            time_str = "Unknown"
-        
-        table.add_row(
-            time_str,
-            item["filename"][:30] + "..." if len(item["filename"]) > 30 else item["filename"],
-            item["category"].title(),
-            str(item["word_count"])
-        )
-    
+    if activity:
+        for item in activity:
+            table.add_row(
+                item.get("filename", "N/A"),
+                item.get("category", "N/A").capitalize(),
+                item.get("added_at", "N/A")
+            )
+            
     return table
 
 def create_layout(stats: Dict, activity: List[Dict]) -> Layout:
@@ -303,16 +299,16 @@ def create_layout(stats: Dict, activity: List[Dict]) -> Layout:
     
     # Header
     header_text = Text("🗂️ PARA System Monitor", style="bold blue")
-    header_text.append(f" | Database: {stats['database_size_mb']} MB | Uptime: {stats['uptime']}", style="dim")
+    header_text.append(f" | Database: {stats.get('database_size_mb', 0)} MB | Uptime: {stats.get('uptime', 'N/A')}", style="dim")
     layout["header"].update(Panel(header_text, title="PARA System Status"))
     
     # Stats section
     stats_table = create_stats_table(stats)
     category_table = create_category_table(stats)
-    stats_content = stats_table
-    stats_content.add_row()  # Add spacing
-    stats_content.add_row()  # Add spacing
-    stats_content.extend(category_table)
+    stats_content = Group(
+        stats_table,
+        category_table
+    )
     layout["stats"].update(Panel(stats_content, title="Statistics"))
     
     # Activity section
@@ -320,7 +316,7 @@ def create_layout(stats: Dict, activity: List[Dict]) -> Layout:
     layout["activity"].update(Panel(activity_table, title="Recent Activity"))
     
     # Footer
-    footer_text = Text("Press Ctrl+C to exit | Auto-refresh every 3 seconds", style="dim")
+    footer_text = Text("Press 'q' or Ctrl+C to exit | Auto-refresh every 3 seconds", style="dim")
     layout["footer"].update(Panel(footer_text))
     
     return layout
@@ -332,18 +328,37 @@ def main():
     
     monitor = PARAChromaMonitor()
     
+    # Store old terminal settings to restore them later
+    old_settings = termios.tcgetattr(sys.stdin)
+    
     try:
+        # Set the terminal to cbreak mode to read keys instantly
+        tty.setcbreak(sys.stdin.fileno())
+        
         with Live(create_layout(monitor.get_database_stats(), monitor.get_recent_activity()), 
-                 refresh_per_second=0.33, screen=True) as live:
+                 refresh_per_second=0.33, screen=True, transient=True) as live:
             while True:
+                # Check for keyboard input without blocking
+                if select.select([sys.stdin], [], [], 0) == ([sys.stdin], [], []):
+                    key = sys.stdin.read(1)
+                    if key.lower() == 'q':
+                        break # Exit the loop if 'q' is pressed
+                
                 stats = monitor.get_database_stats()
                 activity = monitor.get_recent_activity()
                 live.update(create_layout(stats, activity))
                 time.sleep(3)
     except KeyboardInterrupt:
-        console.print("\n[yellow]Monitoring stopped[/yellow]")
+        # User pressed Ctrl+C, handled by the finally block
+        pass
     except Exception as e:
+        # In case of other errors, restore terminal before printing
+        termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
         console.print(f"\n[red]Error in monitoring: {e}[/red]")
+    finally:
+        # Always restore the terminal to its original state
+        termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
+        console.print("\n[yellow]Monitoring stopped[/yellow]")
 
 if __name__ == "__main__":
     main() 

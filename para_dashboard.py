@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 import threading
 import queue
+import shutil
 
 # Try to import required packages, install if missing
 try:
@@ -165,12 +166,13 @@ class ChromaPARADatabase:
 class PARAOrganizer:
     """Enhanced PARA organizer with Chroma database and dashboard"""
     
-    def __init__(self, vault_path: str = None):
+    def __init__(self, vault_path: str = None, debug_mode: bool = False):
         self.vault_path = vault_path or self._detect_vault()
         self.db = ChromaPARADatabase()
         self.stats = PARAStats()
         self.status_queue = queue.Queue()
         self.ollama_client = ollama.Client(host='http://localhost:11434')
+        self.debug_mode = debug_mode
         
         # PARA folder structure
         self.para_folders = {
@@ -181,27 +183,389 @@ class PARAOrganizer:
             "00-inbox": "Inbox"
         }
     
+    def debug(self, msg: str, level: str = "INFO"):
+        """Debug function that only prints when debug_mode is True"""
+        if not self.debug_mode:
+            return
+        console.print(f"[{level.upper()}] {msg}")
+    
+    def _count_markdown_files(self, path: str) -> int:
+        """Count markdown files in a directory recursively"""
+        try:
+            count = 0
+            for root, dirs, files in os.walk(path):
+                # Skip system directories
+                dirs[:] = [d for d in dirs if not d.startswith('.') and d not in ['node_modules', '__pycache__', '.git', 'venv']]
+                
+                for file in files:
+                    if file.endswith('.md'):
+                        count += 1
+                
+                # Limit depth
+                if root.count(os.sep) - path.count(os.sep) > 2:
+                    dirs.clear()
+            return count
+        except Exception:
+            return 0
+    
+    def _is_likely_obsidian_vault(self, path: str) -> bool:
+        """Check if a directory is likely an Obsidian vault based on multiple indicators"""
+        try:
+            current_script_dir = os.getcwd()
+            # Explicitly ignore the script's directory and its parents
+            if path in [current_script_dir, os.path.dirname(current_script_dir), os.path.dirname(os.path.dirname(current_script_dir))]:
+                 return False
+
+            # Must have .obsidian folder (definitive indicator)
+            obsidian_config = os.path.join(path, ".obsidian")
+            if os.path.exists(obsidian_config) and os.path.isdir(obsidian_config):
+                return True
+            
+            # Skip obvious non-vault directories
+            path_name = os.path.basename(path).lower()
+            skip_patterns = ['repositories', 'projects', 'code', 'src', 'node_modules', 'venv', '__pycache__', '.git']
+            if any(pattern in path_name for pattern in skip_patterns):
+                return False
+            
+            # Skip system directories and home directory more reliably
+            home_dir = os.path.expanduser("~")
+            if path == home_dir or path == os.path.dirname(home_dir): # Ignore ~ and /Users
+                return False
+            
+            # Skip the current script directory more reliably
+            if path.startswith(current_script_dir) and path != current_script_dir:
+                 # This allows subfolders of the repo to be vaults, but not the repo folder itself
+                 pass
+            elif path == current_script_dir:
+                 return False
+
+            # Check for other Obsidian indicators
+            try:
+                items = os.listdir(path)
+            except PermissionError:
+                return False
+            
+            # Check for PARA structure first (strong indicator)
+            para_folders = ['00 inbox', '01 projects', '02 areas', '03 resources', '04 archive', 
+                          '00-inbox', '01-projects', '02-areas', '03-resources', '04-archive',
+                          'inbox', 'projects', 'areas', 'resources', 'archive']
+            para_matches = [d.lower() in [item.lower() for item in items] for d in para_folders]
+            has_para_structure = any(para_matches)
+            
+            # Count markdown files recursively
+            md_count = 0
+            try:
+                for root, dirs, files in os.walk(path):
+                    # Skip system directories
+                    dirs[:] = [d for d in dirs if not d.startswith('.') and d not in ['node_modules', '__pycache__', '.git', 'venv']]
+                    
+                    for file in files:
+                        if file.endswith('.md'):
+                            md_count += 1
+                    
+                    # Limit depth to avoid infinite recursion
+                    if root.count(os.sep) - path.count(os.sep) > 3:
+                        dirs.clear()
+            except Exception:
+                pass
+            
+            # Must have markdown files
+            if md_count == 0:
+                return False
+            
+            # Check for multiple Obsidian indicators
+            indicators = 0
+            
+            # Check for PARA structure (very strong indicator)
+            if has_para_structure:
+                indicators += 4  # Very strong indicator - this is likely a vault
+            
+            # Check for common Obsidian folder names
+            obsidian_folders = ['attachments', 'images', 'assets', 'media', 'templates', 'daily notes', 'moc', '.obsidian', '.git']
+            if any(d in items for d in obsidian_folders):
+                indicators += 1
+            
+            # Check for common Obsidian file names
+            obsidian_files = ['README.md', 'index.md', 'home.md', 'daily notes', 'templates', 'moc.md']
+            if any(f in items for f in obsidian_files):
+                indicators += 1
+            
+            # Check if path name suggests it's an Obsidian vault
+            if 'obsidian' in path_name or 'vault' in path_name or 'notes' in path_name:
+                indicators += 2
+            
+            # Check for reasonable number of markdown files (not too many, not too few)
+            if 10 <= md_count <= 500:  # More reasonable range for a vault
+                indicators += 1
+            
+            # Check if it's in a cloud storage location (Google Drive, iCloud, etc.)
+            cloud_indicators = ['googledrive', 'icloud', 'dropbox', 'onedrive', 'cloudstorage']
+            if any(indicator in path.lower() for indicator in cloud_indicators):
+                indicators += 1
+            
+            # If it has PARA structure, it's very likely a vault
+            if has_para_structure:
+                return indicators >= 2  # Higher threshold even for PARA-structured directories
+            
+            # Must have at least 3 indicators to be considered a likely vault (more strict)
+            return indicators >= 3
+            
+        except Exception:
+            return False
+    
+    def _shorten_path(self, path: str, max_len: int = 60) -> str:
+        """Shorten a path to be more readable in the UI"""
+        try:
+            # Replace home directory with ~
+            home = os.path.expanduser("~")
+            if path.startswith(home):
+                path = "~" + path[len(home):]
+
+            if len(path) <= max_len:
+                return path
+
+            # Shorten the middle of the path
+            parts = path.split(os.sep)
+            if len(parts) > 4:
+                # Keep first 2 and last 2 parts
+                shortened_path = os.sep.join(parts[:2]) + f"{os.sep}...{os.sep}" + os.sep.join(parts[-2:])
+                return shortened_path
+            
+            return path
+        except Exception:
+            return path # Return original path on error
+    
     def _detect_vault(self) -> str:
-        """Detect Obsidian vault automatically"""
+        """Detect Obsidian vault automatically with enhanced detection for multiple vaults"""
+        console.print("[blue]🔍 Detecting Obsidian vaults...[/blue]")
+        
+        # Common Obsidian vault locations across different OS
         possible_paths = [
+            # macOS common locations
             os.path.expanduser("~/Documents/Obsidian"),
             os.path.expanduser("~/Obsidian"),
             os.path.expanduser("~/Library/Mobile Documents/iCloud~md~obsidian/Documents"),
+            os.path.expanduser("~/Library/CloudStorage/iCloud Drive/Obsidian"),
             os.path.expanduser("~/Dropbox/Obsidian"),
-            os.path.expanduser("~/OneDrive/Obsidian")
+            os.path.expanduser("~/OneDrive/Obsidian"),
+            os.path.expanduser("~/Google Drive/Obsidian"),
+            os.path.expanduser("~/Desktop/Obsidian"),
+            os.path.expanduser("~/Downloads/Obsidian"),
+            os.path.expanduser("~/Library/Application Support/Obsidian"),
+            os.path.expanduser("~/Library/Preferences/Obsidian"),
+            
+            # Google Drive specific paths (macOS)
+            os.path.expanduser("~/Library/CloudStorage/GoogleDrive-*/Mi unidad/Obsidian"),
+            os.path.expanduser("~/Library/CloudStorage/GoogleDrive-*/My Drive/Obsidian"),
+            os.path.expanduser("~/Library/CloudStorage/GoogleDrive-*/Mi unidad"),
+            os.path.expanduser("~/Library/CloudStorage/GoogleDrive-*/My Drive"),
+            
+            # Linux common locations
+            os.path.expanduser("~/Documents/Obsidian"),
+            os.path.expanduser("~/Obsidian"),
+            os.path.expanduser("~/Dropbox/Obsidian"),
+            os.path.expanduser("~/OneDrive/Obsidian"),
+            os.path.expanduser("~/Google Drive/Obsidian"),
+            os.path.expanduser("~/Desktop/Obsidian"),
+            os.path.expanduser("~/Downloads/Obsidian"),
+            
+            # Windows common locations (for cross-platform compatibility)
+            os.path.expanduser("~/Documents/Obsidian"),
+            os.path.expanduser("~/Obsidian"),
+            os.path.expanduser("~/Dropbox/Obsidian"),
+            os.path.expanduser("~/OneDrive/Obsidian"),
+            os.path.expanduser("~/Google Drive/Obsidian"),
+            os.path.expanduser("~/Desktop/Obsidian"),
+            os.path.expanduser("~/Downloads/Obsidian"),
+            
+            # Check current directory and parents
+            os.getcwd(),
+            os.path.dirname(os.getcwd()),
+            os.path.dirname(os.path.dirname(os.getcwd())),
+            os.path.dirname(os.path.dirname(os.path.dirname(os.getcwd())))
         ]
         
+        # Remove duplicates and non-existent paths
+        checked_paths = []
         for path in possible_paths:
-            if os.path.exists(path):
-                # Look for .obsidian folder
-                for root, dirs, files in os.walk(path):
-                    if ".obsidian" in dirs:
-                        console.print(f"[green]Found Obsidian vault: {root}[/green]")
-                        return root
+            if path and path not in checked_paths:
+                # Handle wildcard paths (like Google Drive)
+                if '*' in path:
+                    import glob
+                    expanded_paths = glob.glob(path)
+                    for expanded_path in expanded_paths:
+                        if os.path.exists(expanded_path) and expanded_path not in checked_paths:
+                            checked_paths.append(expanded_path)
+                elif os.path.exists(path):
+                    checked_paths.append(path)
         
-        # If not found, ask user
-        console.print("[yellow]No Obsidian vault detected automatically[/yellow]")
-        return input("Please enter your Obsidian vault path: ").strip()
+        console.print(f"[dim]Checking {len(checked_paths)} possible locations...[/dim]")
+        
+        # Find all potential vaults
+        found_vaults = []
+        
+        # First pass: Look for .obsidian folder (definitive vault detection)
+        for path in checked_paths:
+            console.print(f"[dim]Checking: {path}[/dim]")
+            
+            # Check if this path itself is a vault (has .obsidian folder)
+            obsidian_config = os.path.join(path, ".obsidian")
+            if os.path.exists(obsidian_config) and os.path.isdir(obsidian_config):
+                console.print(f"[green]✓ Found Obsidian vault: {path}[/green]")
+                found_vaults.append({
+                    'path': path,
+                    'type': 'definitive',
+                    'confidence': 'high',
+                    'md_count': self._count_markdown_files(path)
+                })
+                continue
+            
+            # Check subdirectories for vaults
+            try:
+                for root, dirs, files in os.walk(path):
+                    # Skip system directories
+                    dirs[:] = [d for d in dirs if not d.startswith('.') and d not in ['node_modules', '__pycache__', '.git', 'venv', '__pycache__']]
+                    
+                    if ".obsidian" in dirs:
+                        console.print(f"[green]✓ Found Obsidian vault: {root}[/green]")
+                        found_vaults.append({
+                            'path': root,
+                            'type': 'definitive',
+                            'confidence': 'high',
+                            'md_count': self._count_markdown_files(root)
+                        })
+                    
+                    # Limit depth to avoid infinite recursion
+                    if root.count(os.sep) - path.count(os.sep) > 3:
+                        dirs.clear()
+            except PermissionError:
+                console.print(f"[yellow]⚠ Permission denied accessing: {path}[/yellow]")
+                continue
+            except Exception as e:
+                console.print(f"[yellow]⚠ Error checking {path}: {e}[/yellow]")
+                continue
+        
+        # Second pass: Look for directories that are likely Obsidian vaults
+        console.print("[blue]🔍 Searching for likely Obsidian vaults...[/blue]")
+        for path in checked_paths:
+            try:
+                # Only check if this path is likely an Obsidian vault
+                if self._is_likely_obsidian_vault(path):
+                    md_count = self._count_markdown_files(path)
+                    
+                    # Check if this path is not already in found_vaults
+                    if not any(vault['path'] == path for vault in found_vaults):
+                        console.print(f"[yellow]⚠ Found likely Obsidian vault: {path}[/yellow]")
+                        console.print(f"[dim]Contains {md_count} markdown files[/dim]")
+                        found_vaults.append({
+                            'path': path,
+                            'type': 'likely',
+                            'confidence': 'medium',
+                            'md_count': md_count
+                        })
+                        
+            except Exception as e:
+                continue
+        
+        # Handle found vaults
+        if not found_vaults:
+            console.print("[red]❌ No Obsidian vaults detected automatically[/red]")
+            console.print("[yellow]💡 Common Obsidian vault locations:[/yellow]")
+            console.print("  • ~/Documents/Obsidian")
+            console.print("  • ~/Obsidian") 
+            console.print("  • ~/Library/Mobile Documents/iCloud~md~obsidian/Documents")
+            console.print("  • ~/Dropbox/Obsidian")
+            console.print("  • ~/OneDrive/Obsidian")
+            console.print("  • ~/Google Drive/Obsidian")
+            
+            return self._manual_vault_input()
+        
+        # Sort vaults by confidence and markdown count
+        found_vaults.sort(key=lambda x: (x['confidence'] == 'high', x['md_count']), reverse=True)
+        
+        if len(found_vaults) == 1:
+            # Only one vault found, use it automatically
+            selected_vault = found_vaults[0]
+            console.print(f"[green]✓ Auto-selected vault: {selected_vault['path']}[/green]")
+            console.print(f"[dim]Contains {selected_vault['md_count']} markdown files[/dim]")
+            return selected_vault['path']
+        
+        # Multiple vaults found, let user choose
+        console.print(f"[blue]Found {len(found_vaults)} potential Obsidian vaults:[/blue]")
+        
+        for i, vault in enumerate(found_vaults, 1):
+            confidence_icon = "✓" if vault['confidence'] == 'high' else "⚠"
+            display_path = self._shorten_path(vault['path'])
+            console.print(f"  {i}. {confidence_icon} {display_path}")
+            console.print(f"     [dim]Type: {vault['type']}, Files: {vault['md_count']} markdown, Path: {vault['path']}[/dim]")
+        
+        while True:
+            try:
+                choice = input(f"\nSelect vault (1-{len(found_vaults)}) or 'm' for manual input: ").strip()
+                
+                if choice.lower() == 'm':
+                    return self._manual_vault_input()
+                
+                choice_num = int(choice)
+                if 1 <= choice_num <= len(found_vaults):
+                    selected_vault = found_vaults[choice_num - 1]
+                    console.print(f"[green]✓ Selected vault: {selected_vault['path']}[/green]")
+                    return selected_vault['path']
+                else:
+                    console.print(f"[red]Invalid choice. Please enter 1-{len(found_vaults)} or 'm'[/red]")
+            except ValueError:
+                console.print(f"[red]Invalid input. Please enter 1-{len(found_vaults)} or 'm'[/red]")
+    
+    def _manual_vault_input(self) -> str:
+        """Handle manual vault path input with validation"""
+        while True:
+            vault_path = input("\nPlease enter your Obsidian vault path: ").strip()
+            
+            # Expand user path if needed
+            if vault_path.startswith('~'):
+                vault_path = os.path.expanduser(vault_path)
+            
+            if os.path.exists(vault_path):
+                # Check if it has markdown files or .obsidian folder
+                has_md = any(f.endswith('.md') for f in os.listdir(vault_path) if os.path.isfile(os.path.join(vault_path, f)))
+                has_obsidian = os.path.exists(os.path.join(vault_path, '.obsidian'))
+                
+                if has_md or has_obsidian:
+                    console.print(f"[green]✓ Valid Obsidian vault: {vault_path}[/green]")
+                    return vault_path
+                else:
+                    console.print(f"[red]❌ Path exists but doesn't appear to be an Obsidian vault[/red]")
+                    console.print(f"[yellow]No markdown files or .obsidian folder found in: {vault_path}[/yellow]")
+            else:
+                console.print(f"[red]❌ Path does not exist: {vault_path}[/red]")
+            
+            retry = input("Try again? (y/n): ").strip().lower()
+            if retry not in ['y', 'yes']:
+                raise ValueError("No valid Obsidian vault path provided")
+    
+    def backup_vault(self, vault_path: str) -> bool:
+        """Create a backup of the vault before any operations"""
+        try:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            vault_name = os.path.basename(vault_path)
+            backup_filename = f"backup_{vault_name}_{timestamp}"
+            backup_path = os.path.join(os.getcwd(), "backups", backup_filename)
+            
+            # Create backups directory if it doesn't exist
+            os.makedirs(os.path.join(os.getcwd(), "backups"), exist_ok=True)
+            
+            console.print(f"[blue]🔄 Creating backup of vault: {vault_path}[/blue]")
+            console.print(f"[dim]Backup location: {backup_path}.zip[/dim]")
+            
+            # Create zip backup
+            shutil.make_archive(backup_path, 'zip', vault_path)
+            
+            console.print(f"[green]✓ Backup created successfully: {backup_path}.zip[/green]")
+            return True
+            
+        except Exception as e:
+            console.print(f"[red]❌ Error creating backup: {e}[/red]")
+            return False
     
     def create_para_structure(self):
         """Create PARA folder structure"""
@@ -219,21 +583,26 @@ class PARAOrganizer:
         """Classify note using Ollama AI"""
         try:
             prompt = f"""
-            Classify this note into one of these PARA categories:
-            - PROJECTS: Active projects with deadlines and specific outcomes
-            - AREAS: Ongoing responsibilities and life areas
-            - RESOURCES: Reference materials, knowledge, and tools
-            - ARCHIVE: Completed projects and inactive items
-            - INBOX: Unprocessed items that need review
+            Eres un experto en el método de organización PARA de Tiago Forte.
+            Tu tarea es analizar el contenido y el título de una nota y clasificarla en una de las siguientes 5 categorías: PROJECTS, AREAS, RESOURCES, ARCHIVE, o INBOX.
 
-            Note filename: {filename}
-            Note content: {content[:500]}...
+            - **PROJECTS:** Tiene un objetivo específico y un final definido. Es accionable.
+            - **AREAS:** Es una esfera de responsabilidad sin fecha de fin (ej: 'Salud', 'Finanzas').
+            - **RESOURCES:** Es un tema de interés, notas de referencia, o material de soporte.
+            - **ARCHIVE:** Es un proyecto o área que ya no está activa o se ha completado.
+            - **INBOX:** Úsalo si no puedes determinar la categoría con certeza.
 
-            Respond with ONLY the category name (PROJECTS, AREAS, RESOURCES, ARCHIVE, or INBOX).
+            Analiza la siguiente nota:
+            ---
+            Título: {filename}
+            Contenido: {content[:1000]}...
+            ---
+
+            Responde **solamente** con el nombre de la categoría (PROJECTS, AREAS, RESOURCES, ARCHIVE, o INBOX).
             """
             
             response = self.ollama_client.chat(
-                model='llama3.2:3b',
+                model='llama3.2:latest',
                 messages=[{'role': 'user', 'content': prompt}]
             )
             
@@ -242,13 +611,13 @@ class PARAOrganizer:
             # Validate category
             valid_categories = ['PROJECTS', 'AREAS', 'RESOURCES', 'ARCHIVE', 'INBOX']
             if category not in valid_categories:
-                console.print(f"[yellow]Invalid AI response '{category}', defaulting to INBOX[/yellow]")
+                self.debug(f"Invalid AI response '{category}', defaulting to INBOX", "WARN")
                 return 'INBOX'
             
             return category
             
         except Exception as e:
-            console.print(f"[red]AI classification error: {e}[/red]")
+            self.debug(f"AI classification error: {e}", "ERROR")
             return 'INBOX'
     
     def organize_notes(self, dry_run: bool = True):
@@ -257,24 +626,53 @@ class PARAOrganizer:
         self.stats.start_time = datetime.now()
         self.stats.status = "running"
         
+        # ALWAYS create backup before any operations
+        console.print("[yellow]⚠️  IMPORTANT: Creating backup before any operations...[/yellow]")
+        if not self.backup_vault(self.vault_path):
+            console.print("[red]❌ Backup failed! Aborting operation for safety.[/red]")
+            console.print("[yellow]💡 Please ensure you have write permissions and try again.[/yellow]")
+            return
+        
+        console.print("[green]✓ Backup completed successfully. Proceeding with organization...[/green]")
+        
         # Create PARA structure
         self.create_para_structure()
         
-        # Find all markdown files
-        markdown_files = []
-        for root, dirs, files in os.walk(self.vault_path):
-            # Skip PARA folders and system folders
-            dirs[:] = [d for d in dirs if not d.startswith(('.', '00-', '01-', '02-', '03-', '04-'))]
-            
-            for file in files:
-                if file.endswith('.md') and not file.startswith('.'):
-                    markdown_files.append(os.path.join(root, file))
+        # Obtener el recuento de notas por categoría y proyecto, excluyendo el inbox
+        # para no duplicar el recuento
+        all_notes = get_all_notes(self.vault_path)
         
-        self.stats.total_notes = len(markdown_files)
-        console.print(f"[blue]Found {self.stats.total_notes} markdown files[/blue]")
+        # Buscar solo notas en el Inbox
+        inbox_folders = ["05-Inbox", "00-Inbox", "Inbox"]
+        inbox_notes = [
+            note for note in all_notes
+            if any(folder in Path(note).parts for folder in inbox_folders)
+        ]
+        inbox_count = len(inbox_notes)
+        
+        # Definir carpetas de sistema a excluir del "estado del vault"
+        system_folders = [
+            "01-Projects", "02-Areas", "03-Resources", "04-Archive", "05-Inbox",
+            ".obsidian", "attachments", "images", "assets", "media", "templates",
+            "backups", ".para_db", ".git"
+        ]
+        
+        # Calcular notas fuera de la estructura PARA
+        other_notes_count = 0
+        for note in all_notes:
+            if not any(folder in system_folders for folder in Path(note).parts):
+                other_notes_count += 1
+        
+        self.stats.total_notes = len(all_notes)
+        total_md_files = len([f for f in os.listdir(self.vault_path) if f.endswith('.md')])
+        console.print(f"[blue]Found {self.stats.total_notes} notes in total out of {total_md_files} total markdown files[/blue]")
+        
+        if not all_notes:
+            console.print("[yellow]No notes found to process.[/yellow]")
+            return
         
         # Process each file
-        for i, file_path in enumerate(markdown_files):
+        for i, file_path in enumerate(all_notes):
             try:
                 self.stats.current_note = os.path.basename(file_path)
                 self.status_queue.put(self.stats.to_dict())

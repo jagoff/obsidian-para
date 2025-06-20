@@ -1,5 +1,11 @@
 # 🗂️ PARA System with ChromaDB
 
+[![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![GitHub](https://img.shields.io/badge/GitHub-jagoff/obsidian--para-blue.svg)](https://github.com/jagoff/obsidian-para)
+[![Ollama](https://img.shields.io/badge/Ollama-llama3.2:3b-orange.svg)](https://ollama.ai)
+[![ChromaDB](https://img.shields.io/badge/ChromaDB-Vector%20DB-purple.svg)](https://chromadb.com)
+
 Sistema completo para organizar automáticamente tu vault de Obsidian usando la metodología PARA con IA local y base de datos vectorial.
 
 ## 🚀 Características
@@ -24,7 +30,7 @@ Sistema completo para organizar automáticamente tu vault de Obsidian usando la 
 
 ```bash
 # Clonar el repositorio
-git clone https://github.com/tu-usuario/obsidian-para.git
+git clone https://github.com/jagoff/obsidian-para.git
 cd obsidian-para
 
 # Ejecutar instalación automática
@@ -226,8 +232,8 @@ Este proyecto está bajo la Licencia MIT. Ver el archivo `LICENSE` para más det
 Si tienes problemas o preguntas:
 
 1. Revisa la sección de [Solución de Problemas](#-solución-de-problemas)
-2. Abre un [Issue](https://github.com/tu-usuario/obsidian-para/issues)
-3. Consulta la [documentación](https://github.com/tu-usuario/obsidian-para/wiki)
+2. Abre un [Issue](https://github.com/jagoff/obsidian-para/issues)
+3. Consulta la [documentación](https://github.com/jagoff/obsidian-para/wiki)
 
 ---
 
@@ -235,4 +241,4 @@ Si tienes problemas o preguntas:
 
 ---
 
-*Desarrollado con ❤️ para la comunidad de Obsidian* 
+*Desarrollado con ❤️ para la comunidad de Obsidian*
