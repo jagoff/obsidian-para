@@ -15,6 +15,8 @@ from typing import Dict, List, Optional, Tuple
 import threading
 import queue
 import shutil
+from paralib.logger import logger
+import subprocess
 
 # Try to import required packages, install if missing
 try:
@@ -33,7 +35,6 @@ try:
     from rich.text import Text
 except ImportError as e:
     print(f"Installing required packages: {e}")
-    import subprocess
     subprocess.check_call([sys.executable, "-m", "pip", "install", 
                           "chromadb", "gradio", "sentence-transformers", "ollama", "rich"])
     import chromadb
@@ -51,6 +52,16 @@ except ImportError as e:
     from rich.text import Text
 
 console = Console()
+
+# Decorador para loguear errores automáticamente
+def log_exceptions(func):
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except Exception as e:
+            logger.error(f"Error in {func.__name__}: {e}", exc_info=True)
+            raise
+    return wrapper
 
 class PARAStats:
     """Statistics tracking for PARA organization"""
@@ -127,7 +138,7 @@ class ChromaPARADatabase:
             
             return True
         except Exception as e:
-            console.print(f"[red]Error adding note to database: {e}[/red]")
+            logger.error(f"Error adding note to database: {e}")
             return False
     
     def search_similar_notes(self, query: str, n_results: int = 5):
@@ -140,7 +151,7 @@ class ChromaPARADatabase:
             )
             return results
         except Exception as e:
-            console.print(f"[red]Error searching database: {e}[/red]")
+            logger.error(f"Error searching database: {e}")
             return None
     
     def get_category_stats(self):
@@ -156,7 +167,7 @@ class ChromaPARADatabase:
             
             return stats
         except Exception as e:
-            console.print(f"[red]Error getting stats: {e}[/red]")
+            logger.error(f"Error getting stats: {e}")
             return {"projects": 0, "areas": 0, "resources": 0, "archive": 0, "inbox": 0}
     
     def _generate_id(self, note_path: str) -> str:
@@ -335,7 +346,7 @@ class PARAOrganizer:
         except Exception:
             return path # Return original path on error
     
-    def _detect_vault(self) -> str:
+    def _detect_vault(self):
         """Detect Obsidian vault automatically with enhanced detection for multiple vaults"""
         console.print("[blue]🔍 Detecting Obsidian vaults...[/blue]")
         
@@ -564,7 +575,7 @@ class PARAOrganizer:
             return True
             
         except Exception as e:
-            console.print(f"[red]❌ Error creating backup: {e}[/red]")
+            logger.error(f"Error creating backup: {e}")
             return False
     
     def create_para_structure(self):
@@ -753,7 +764,6 @@ class PARAOrganizer:
 
 def create_dashboard():
     """Create Gradio dashboard for PARA organization"""
-    
     organizer = PARAOrganizer()
     
     def start_organization(dry_run: bool):
@@ -786,52 +796,88 @@ def create_dashboard():
         except:
             return "Search error"
     
-    # Create Gradio interface
+    # --- NUEVO: Comandos principales PARA ---
+    PARA_COMMANDS = [
+        {"name": "Dashboard web", "cmd": "python para_dashboard.py", "desc": "Lanza el dashboard web interactivo."},
+        {"name": "Monitor en terminal", "cmd": "python para_cli.py monitor", "desc": "Monitoriza el vault en tiempo real en la terminal."},
+        {"name": "Clasificar notas", "cmd": "python para_cli.py classify", "desc": "Clasifica notas de Inbox/Archive usando IA."},
+        {"name": "Refactorizar Archive", "cmd": "python para_cli.py refactor", "desc": "Re-evalúa y organiza notas desde Archive."},
+        {"name": "Exportar dataset fine-tuning", "cmd": "python para_cli.py export-finetune-dataset", "desc": "Exporta el dataset de feedback para entrenamiento."},
+        {"name": "Revisión de feedback", "cmd": "python para_cli.py review-feedback", "desc": "Revisión/corrección masiva de notas clasificadas."},
+        {"name": "Ver logs", "cmd": "tail -n 40 logs/para.log", "desc": "Muestra los últimos logs del sistema."},
+    ]
+
+    def run_para_command(cmd):
+        try:
+            result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=60)
+            return result.stdout + ("\n" + result.stderr if result.stderr else "")
+        except Exception as e:
+            return f"Error ejecutando comando: {e}"
+
+    # --- FIN NUEVO ---
+
     with gr.Blocks(title="PARA Organizer Dashboard", theme=gr.themes.Soft()) as dashboard:
         gr.Markdown("# 🗂️ PARA Organizer Dashboard")
         gr.Markdown("Organize your Obsidian vault using the PARA methodology with AI-powered classification")
         
-        with gr.Row():
-            with gr.Column():
-                gr.Markdown("## 📊 Organization Control")
-                dry_run_checkbox = gr.Checkbox(label="Dry Run (Preview Only)", value=True)
-                start_btn = gr.Button("🚀 Start Organization", variant="primary")
-                status_output = gr.Textbox(label="Status", interactive=False)
-            
-            with gr.Column():
-                gr.Markdown("## 📈 Statistics")
-                stats_output = gr.JSON(label="Current Stats")
-                refresh_stats_btn = gr.Button("🔄 Refresh Stats")
-        
-        with gr.Row():
-            with gr.Column():
-                gr.Markdown("## 🔍 Note Search")
-                search_query = gr.Textbox(label="Search Query")
-                search_btn = gr.Button("🔍 Search")
-                search_results = gr.JSON(label="Search Results")
-        
-        # Event handlers
-        start_btn.click(
-            fn=start_organization,
-            inputs=[dry_run_checkbox],
-            outputs=[status_output]
-        )
-        
-        refresh_stats_btn.click(
-            fn=get_stats,
-            outputs=[stats_output]
-        )
-        
-        search_btn.click(
-            fn=search_notes,
-            inputs=[search_query],
-            outputs=[search_results]
-        )
-        
-        # Auto-refresh stats every 5 seconds
-        dashboard.load(get_stats, outputs=[stats_output])
-    
+        with gr.Tabs():
+            with gr.Tab("Panel Principal"):
+                with gr.Row():
+                    with gr.Column():
+                        gr.Markdown("## 📊 Organization Control")
+                        dry_run_checkbox = gr.Checkbox(label="Dry Run (Preview Only)", value=True)
+                        start_btn = gr.Button("🚀 Start Organization", variant="primary")
+                        status_output = gr.Textbox(label="Status", interactive=False)
+                    with gr.Column():
+                        gr.Markdown("## 📈 Statistics")
+                        stats_output = gr.JSON(label="Current Stats")
+                        refresh_stats_btn = gr.Button("🔄 Refresh Stats")
+                with gr.Row():
+                    with gr.Column():
+                        gr.Markdown("## 🔍 Note Search")
+                        search_query = gr.Textbox(label="Search Query")
+                        search_btn = gr.Button("🔍 Search")
+                        search_results = gr.JSON(label="Search Results")
+                start_btn.click(
+                    fn=start_organization,
+                    inputs=[dry_run_checkbox],
+                    outputs=[status_output]
+                )
+                refresh_stats_btn.click(
+                    fn=get_stats,
+                    outputs=[stats_output]
+                )
+                search_btn.click(
+                    fn=search_notes,
+                    inputs=[search_query],
+                    outputs=[search_results]
+                )
+                dashboard.load(get_stats, outputs=[stats_output])
+            with gr.Tab("Ayuda y Comandos"):
+                gr.Markdown("# 🛠️ Comandos principales del sistema PARA")
+                with gr.Row():
+                    for cmd in PARA_COMMANDS:
+                        with gr.Column():
+                            gr.Markdown(f"**{cmd['name']}**\n{cmd['desc']}\n`{cmd['cmd']}`")
+                            btn = gr.Button(f"Ejecutar {cmd['name']}")
+                            output = gr.Textbox(label="Salida", lines=6)
+                            btn.click(fn=lambda c=cmd['cmd']: run_para_command(c), outputs=output)
+                gr.Markdown("---")
+                gr.Markdown("## Terminal web (solo comandos listados)")
+                terminal_cmd = gr.Dropdown([c['cmd'] for c in PARA_COMMANDS], label="Comando PARA", value=PARA_COMMANDS[0]['cmd'])
+                terminal_btn = gr.Button("Ejecutar comando seleccionado")
+                terminal_out = gr.Textbox(label="Salida de terminal", lines=10)
+                terminal_btn.click(fn=run_para_command, inputs=terminal_cmd, outputs=terminal_out)
     return dashboard
+
+# Captura global de excepciones no manejadas
+def handle_exception(exc_type, exc_value, exc_traceback):
+    if issubclass(exc_type, KeyboardInterrupt):
+        sys.__excepthook__(exc_type, exc_value, exc_traceback)
+        return
+    logger.critical("Excepción no capturada", exc_info=(exc_type, exc_value, exc_traceback))
+    print(f"[red]Excepción no capturada: {exc_value}[/red]")
+sys.excepthook = handle_exception
 
 def main():
     """Main function"""

@@ -32,129 +32,125 @@ from pathlib import Path
 import shutil
 from datetime import datetime
 import argparse
-
-# Use rich for better UI, but handle if it's not installed, since this can be a standalone script.
-try:
-    from rich.console import Console
-    from rich.prompt import Prompt, Confirm
-    from rich.table import Table
-except ImportError:
-    print("Rich library not found. Please run 'pip install rich' for a better UI experience.")
-    # Create dummy classes to avoid crashing if rich is not installed
-    class Console:
-        def print(self, *args, **kwargs): print(*args)
-    class Prompt:
-        @staticmethod
-        def ask(prompt, **kwargs): return input(prompt)
-    class Confirm:
-        @staticmethod
-        def ask(prompt, **kwargs):
-            response = input(f"{prompt} [y/n]: ").lower()
-            return response == 'y'
+from paralib.logger import logger
+from rich.console import Console
+from rich.prompt import Prompt, Confirm
+from rich.table import Table
+from rich.panel import Panel
+from rich import box
 
 console = Console()
 
 BACKUP_DIR = Path.cwd() / "backups"
 
+# Decorador para loguear errores automáticamente
+def log_exceptions(func):
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except Exception as e:
+            logger.error(f"Error in {func.__name__}: {e}", exc_info=True)
+            raise
+    return wrapper
+
+# Captura global de excepciones no manejadas
+def handle_exception(exc_type, exc_value, exc_traceback):
+    if issubclass(exc_type, KeyboardInterrupt):
+        sys.__excepthook__(exc_type, exc_value, exc_traceback)
+        return
+    logger.critical("Excepción no capturada", exc_info=(exc_type, exc_value, exc_traceback))
+    print(f"[red]Excepción no capturada: {exc_value}[/red]")
+sys.excepthook = handle_exception
+
 def create_backup(vault_path: Path, reason: str = "pre-organization") -> Path | None:
     """Creates a timestamped zip backup of the vault."""
     BACKUP_DIR.mkdir(exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    # Sanitize vault name for filename
     safe_vault_name = "".join(c for c in vault_path.name if c.isalnum() or c in (' ', '_')).rstrip()
     backup_filename = f"backup_{safe_vault_name}_{timestamp}_{reason}.zip"
     backup_path = BACKUP_DIR / backup_filename
-    
-    console.print(f"\n🔒 [bold]Creating backup for vault:[/bold] [cyan]{vault_path.name}[/cyan]")
-    
+    console.print(Panel(f"🔒 Creando backup para vault: [cyan]{vault_path.name}[/cyan]", title="Backup Vault", style="bold blue", box=box.SIMPLE))
     try:
         shutil.make_archive(str(backup_path.with_suffix('')), 'zip', str(vault_path))
-        console.print(f"✅ [bold green]Backup successful:[/bold green] [yellow]{backup_path}[/yellow]")
+        console.print(Panel(f"✅ Backup exitoso: [yellow]{backup_path}[/yellow]", title="Backup OK", style="bold green", box=box.SIMPLE))
         return backup_path
     except Exception as e:
-        console.print(f"[bold red]Backup failed: {e}[/bold red]")
+        console.print(Panel(f"❌ Backup fallido: {e}", title="Backup Error", style="bold red", box=box.SIMPLE))
         return None
 
 def list_backups():
     """Lists available backups."""
     if not BACKUP_DIR.exists() or not any(BACKUP_DIR.glob('*.zip')):
-        console.print("[yellow]No backups found.[/yellow]")
+        console.print(Panel("⚠️ No se encontraron backups.", style="bold yellow", box=box.SIMPLE))
         return []
-
     backups = sorted(BACKUP_DIR.glob("*.zip"), key=os.path.getmtime, reverse=True)
-    
-    table = Table(title="Available Backups", show_header=True, header_style="bold magenta")
+    table = Table(title="Available Backups", show_header=True, header_style="bold magenta", box=box.SIMPLE)
     table.add_column("#", style="dim", width=3)
     table.add_column("Backup File", style="cyan")
     table.add_column("Date Created", style="green")
     table.add_column("Size (MB)", style="yellow", justify="right")
-
     for i, backup_file in enumerate(backups, 1):
         created_time = datetime.fromtimestamp(backup_file.stat().st_mtime).strftime('%Y-%m-%d %H:%M:%S')
         size_mb = f"{backup_file.stat().st_size / (1024*1024):.2f}"
         table.add_row(str(i), backup_file.name, created_time, size_mb)
-    
     console.print(table)
     return backups
 
 def restore_backup(vault_path: Path):
     """Restores a vault from a selected backup."""
-    console.print(f"\n🔄 [bold]Starting restore process for vault:[/bold] [cyan]{vault_path.name}[/cyan]")
+    console.print(Panel(f"🔄 Iniciando restauración para vault: [cyan]{vault_path.name}[/cyan]", title="Restaurar Vault", style="bold blue", box=box.SIMPLE))
     backups = list_backups()
     if not backups:
         return
-
-    choice = Prompt.ask("Enter the number of the backup to restore", choices=[str(i) for i in range(1, len(backups) + 1)])
+    choice = Prompt.ask("Número de backup para restaurar", choices=[str(i) for i in range(1, len(backups) + 1)])
     backup_to_restore = backups[int(choice) - 1]
-
-    console.print(f"[bold yellow]WARNING: This will completely overwrite the contents of '{vault_path.name}'.[/bold yellow]")
-    if not Confirm.ask(f"Are you sure you want to restore from '{backup_to_restore.name}'?", default=False):
-        console.print("[bold]Restore cancelled by user.[/bold]")
+    console.print(Panel(f"⚠️ [bold yellow]¡Esto sobrescribirá completamente el contenido de '{vault_path.name}'![/bold yellow]", title="Advertencia", style="bold yellow", box=box.SIMPLE))
+    if not Confirm.ask(f"¿Seguro que quieres restaurar desde '{backup_to_restore.name}'?", default=False):
+        console.print(Panel("❌ Restauración cancelada por el usuario.", style="bold red", box=box.SIMPLE))
         return
-
-    # Create a backup of the current state before restoring
-    console.print("Creating a safety backup of the current state before restoring...")
+    console.print(Panel("Creando backup de seguridad antes de restaurar...", style="bold blue", box=box.SIMPLE))
     safety_backup_path = create_backup(vault_path, reason="pre-restore")
     if not safety_backup_path:
-        console.print("[bold red]Could not create safety backup. Aborting restore.[/bold red]")
+        console.print(Panel("❌ No se pudo crear backup de seguridad. Abortando.", style="bold red", box=box.SIMPLE))
         return
-    
-    console.print(f"✅ Safety backup created at {safety_backup_path}")
-
+    console.print(Panel(f"✅ Backup de seguridad creado en {safety_backup_path}", style="bold green", box=box.SIMPLE))
     try:
-        console.print(f"Restoring from {backup_to_restore.name}...")
-        # Empty the vault directory
-        with console.status("[bold red]Emptying current vault directory...[/bold]", spinner="dots"):
-             for item in vault_path.iterdir():
+        console.print(Panel(f"Restaurando desde {backup_to_restore.name}...", style="bold blue", box=box.SIMPLE))
+        with console.status("[bold red]Vaciando vault actual...[/bold]", spinner="dots"):
+            for item in vault_path.iterdir():
                 if item.is_dir():
                     shutil.rmtree(item)
                 else:
                     item.unlink()
-
-        # Unzip the backup
-        with console.status(f"[bold green]Unzipping {backup_to_restore.name}...[/bold]", spinner="earth"):
+        with console.status(f"[bold green]Descomprimiendo {backup_to_restore.name}...[/bold]", spinner="earth"):
             shutil.unpack_archive(str(backup_to_restore), str(vault_path), 'zip')
-        
-        console.print("\n✅ [bold green]Restore complete![/bold green]")
-
+        console.print(Panel("✅ [bold green]Restauración completa![/bold green]", style="bold green", box=box.SIMPLE))
     except Exception as e:
-        console.print(f"[bold red]An error occurred during restore: {e}[/bold red]")
-        console.print(f"Your vault may be in an inconsistent state. You can manually restore from '{backup_to_restore}' or the safety backup at '{safety_backup_path}'.")
+        console.print(Panel(f"❌ Error durante la restauración: {e}", style="bold red", box=box.SIMPLE))
+        console.print(Panel(f"Tu vault puede estar en estado inconsistente. Puedes restaurar manualmente desde '{backup_to_restore}' o el backup de seguridad en '{safety_backup_path}'.", style="bold yellow", box=box.SIMPLE))
 
+@log_exceptions
 def main():
     parser = argparse.ArgumentParser(description="Backup and Restore manager for the PARA Organizer.")
-    parser.add_argument("--action", choices=['list', 'restore'], required=True, help="Action to perform.")
-    parser.add_argument("--vault-path", required=True, help="Path to the Obsidian vault.")
+    parser.add_argument('--action', choices=['backup', 'list', 'restore'], required=True, help='Acción a realizar')
+    parser.add_argument('--vault-path', required=True, help='Ruta al vault de Obsidian')
+    parser.add_argument('--backup-file', help='Archivo de backup para restaurar (solo para restore)')
     args = parser.parse_args()
-    
-    vault_path = Path(args.vault_path).expanduser().resolve()
-    if not vault_path.is_dir():
-        console.print(f"[bold red]Error: Path '{vault_path}' is not a valid directory.[/bold red]")
-        sys.exit(1)
-        
-    if args.action == 'list':
+
+    vault_path = Path(args.vault_path)
+
+    if args.action == 'backup':
+        backup = create_backup(vault_path)
+        if backup:
+            print(f"Backup creado exitosamente: {backup}")
+        else:
+            print("Error al crear el backup.")
+    elif args.action == 'list':
         list_backups()
     elif args.action == 'restore':
+        if not args.backup_file:
+            print("Debes especificar --backup-file para restaurar.")
+            return
         restore_backup(vault_path)
 
 if __name__ == "__main__":

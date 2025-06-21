@@ -31,16 +31,35 @@ import json
 from pathlib import Path
 import glob
 from rich.console import Console
-from InquirerPy import inquirer
+import yaml
+import re
 
 console = Console()
 CACHE_FILE = Path(".para_cache.json")
-COMMON_VAULT_LOCATIONS = [
-    "~/Documents/Obsidian",
-    "~/Library/Mobile Documents/iCloud~md~obsidian/Documents",
-    "~/Library/CloudStorage/GoogleDrive-fernandoferrari@gmail.com/Mi unidad/Obsidian",
-    "~/Desktop/Obsidian",
-]
+
+def _get_common_vault_locations() -> list[Path]:
+    """Genera dinámicamente una lista de posibles ubicaciones de vaults."""
+    home = Path.home()
+    locations = [
+        home / "Documents",
+        home / "Desktop",
+    ]
+    # Ubicaciones comunes de servicios en la nube en macOS
+    if os.name == 'posix':
+        cloud_storage_path = home / "Library/CloudStorage"
+        if cloud_storage_path.is_dir():
+            # Itera sobre todos los directorios de servicios de nube (e.g., iCloudDrive, GoogleDrive-xxx, Dropbox)
+            for service_dir in cloud_storage_path.iterdir():
+                if service_dir.is_dir():
+                    locations.append(service_dir)
+        
+        mobile_docs_path = home / "Library/Mobile Documents"
+        if mobile_docs_path.is_dir():
+            # Busca específicamente la carpeta de iCloud de Obsidian
+            icloud_obsidian_path = mobile_docs_path / "iCloud~md~obsidian/Documents"
+            if icloud_obsidian_path.is_dir():
+                locations.append(icloud_obsidian_path)
+    return locations
 
 def shorten_path(path: Path, max_len: int = 70) -> str:
     """Acorta una ruta para mostrarla de forma legible."""
@@ -74,84 +93,336 @@ def _save_vault_path_to_cache(vault_path: Path):
         json.dump({"vault_path": str(vault_path.resolve())}, f)
 
 def _detect_vault_automatically() -> Path | None:
-    """Busca un vault de Obsidian en ubicaciones comunes."""
-    console.print("🕵️  [dim]Detectando vaults de Obsidian...[/dim]")
-    checked_paths = {Path(p).expanduser() for p in COMMON_VAULT_LOCATIONS}
+    """Busca un vault de Obsidian en ubicaciones comunes de forma dinámica."""
+    console.print("[dim]🔎 Buscando vaults de Obsidian en ubicaciones conocidas...[/dim]")
     
-    found_vaults = []
-    for path in checked_paths:
-        # Usamos glob para buscar carpetas .obsidian hasta 2 niveles de profundidad
-        # Esto es más rápido que os.walk
-        potential_obsidian_dirs = glob.glob(str(path / "**/.obsidian"), recursive=True)
-        for obsidian_dir in potential_obsidian_dirs:
-            vault_path = Path(obsidian_dir).parent
-            if vault_path not in [v['path'] for v in found_vaults]:
-                 found_vaults.append({'path': vault_path, 'type': 'definitive'})
+    potential_vaults = []
+    # Usar la función dinámica para obtener las ubicaciones base
+    search_locations = _get_common_vault_locations()
 
-    if not found_vaults:
+    for location in set(search_locations): # Usar set para evitar duplicados
+        if not location.is_dir():
+            continue
+        # Buscar recursivamente carpetas .obsidian
+        try:
+            # Usamos rglob para una búsqueda más profunda y flexible
+            for obsidian_dir in location.rglob(".obsidian"):
+                if obsidian_dir.is_dir():
+                    vault_path = obsidian_dir.parent
+                    if vault_path not in potential_vaults:
+                        potential_vaults.append(vault_path)
+        except PermissionError:
+            # Ignorar carpetas a las que no tenemos acceso
+            console.print(f"[dim]No se pudo acceder a {location}, omitiendo.[/dim]")
+            continue
+
+    if not potential_vaults:
+        console.print("[bold yellow]⚠️ No se encontró ningún vault de Obsidian en las ubicaciones conocidas.[/bold yellow]")
         return None
-    
-    if len(found_vaults) == 1:
-        vault = found_vaults[0]['path']
-        console.print(f"🗄️  [bold]Vault detectado automáticamente:[/bold] [cyan]{shorten_path(vault)}[/cyan]")
+
+    if len(potential_vaults) == 1:
+        vault = potential_vaults[0]
+        console.print(f"[bold green]🗄️ Vault detectado automáticamente:[/bold green] [cyan]{shorten_path(vault)}[/cyan] (seleccionado automáticamente)")
         return vault
-
-    # Si hay múltiples vaults, le pedimos al usuario que elija
-    choices = [
-        {"name": shorten_path(v['path']), "value": v['path']}
-        for v in found_vaults
-    ]
-    selected_path_str = inquirer.select(
-        message="Se encontraron varios vaults. Por favor, seleccioná uno:",
-        choices=choices,
-    ).execute()
-    return Path(selected_path_str)
-
-
-def find_vault(vault_path_str: str | None, force_cache: bool) -> Path | None:
-    """
-    Orquesta la búsqueda del vault: caché, parámetro o detección automática.
-
-    Args:
-        vault_path_str: La ruta del vault pasada como argumento (si existe).
-        force_cache: Flag para usar la caché sin preguntar.
-
-    Returns:
-        La ruta del vault como objeto Path, o None si no se encuentra.
-    """
-    # 1. Chequeamos la caché
-    cached_path = _load_vault_path_from_cache()
-    if cached_path:
-        use_cached = force_cache
-        if not use_cached:
-            use_cached = inquirer.confirm(
-                message=f"Se encontró un vault en caché: {shorten_path(cached_path)}. ¿Querés usarlo?",
-                default=True
-            ).execute()
         
-        if use_cached:
-            if cached_path.is_dir():
-                console.print(f"🗄️  [bold]Usando vault desde caché:[/bold] [cyan]{shorten_path(cached_path)}[/cyan]")
-                return cached_path
-            else:
-                console.print("[yellow]La ruta en caché ya no es válida. Buscando de nuevo...[/yellow]")
+    # Si hay múltiples vaults, mostrar selección
+    try:
+        from InquirerPy import inquirer
+        from InquirerPy.base.control import Choice
 
-    # 2. Usamos la ruta pasada como parámetro si existe
-    if vault_path_str:
-        path = Path(vault_path_str).expanduser().resolve()
+        choices = [Choice(value=str(v), name=shorten_path(v)) for v in potential_vaults]
+        
+        selected_path_str = inquirer.select(
+            message="Se encontraron varios vaults. Selecciona el que deseas usar:",
+            choices=choices,
+            default=choices[0]
+        ).execute()
+        
+        return Path(selected_path_str)
+
+    except ImportError:
+        console.print("[bold blue]Se encontraron varios vaults. Selecciona el que deseas usar:[/bold blue]")
+        for i, v in enumerate(potential_vaults, 1):
+            console.print(f"  {i}. {shorten_path(v)}")
+        try:
+            idx = int(input(f"Selecciona vault (1-{len(potential_vaults)}): ").strip())
+            return potential_vaults[idx-1]
+        except (ValueError, IndexError):
+            console.print("[yellow]Selección inválida. Usando el primer vault encontrado.[/yellow]")
+            return potential_vaults[0]
+    except Exception as e:
+        console.print(f"[bold red]Error durante la selección de vault: {e}. Usando el primero.[/bold red]")
+        return potential_vaults[0]
+
+def find_vault(vault_path: str = None, force_cache: bool = False) -> Path | None:
+    """Detecta y retorna la ruta del vault de Obsidian a usar, con mensajes de marca y auto-selección."""
+    if vault_path:
+        path = Path(vault_path).expanduser().resolve()
         if path.is_dir():
-            _save_vault_path_to_cache(path)
-            console.print(f"🗄️  [bold]Usando vault especificado:[/bold] [cyan]{shorten_path(path)}[/cyan]")
+            console.print(f"[bold green]🗄️ Vault especificado por parámetro:[/bold green] [cyan]{shorten_path(path)}[/cyan]")
             return path
         else:
-            console.print(f"[red]La ruta especificada '{path}' no es un directorio válido.[/red]")
+            console.print(f"[bold red]❌ La ruta especificada no es un directorio válido:[/bold red] [yellow]{vault_path}[/yellow]")
             return None
-    
-    # 3. Detección automática como último recurso
-    path = _detect_vault_automatically()
-    if path:
-        _save_vault_path_to_cache(path)
-        return path
+    # Intentar usar caché
+    if CACHE_FILE.exists() and not force_cache:
+        try:
+            with open(CACHE_FILE, 'r') as f:
+                data = json.load(f)
+            cached_path = Path(data.get('vault_path', '')).expanduser().resolve()
+            if cached_path.is_dir():
+                console.print(f"[bold green]🗄️ Vault en caché detectado y seleccionado automáticamente:[/bold green] [cyan]{shorten_path(cached_path)}[/cyan]")
+                return cached_path
+        except Exception:
+            pass
+    # Si no hay caché válida, buscar automáticamente
+    auto_vault = _detect_vault_automatically()
+    if auto_vault:
+        # Guardar en caché
+        with open(CACHE_FILE, 'w') as f:
+            json.dump({'vault_path': str(auto_vault)}, f)
+        return auto_vault
+    console.print("[bold red]❌ No se pudo detectar ningún vault de Obsidian. Por favor, especifícalo con --vault.[/bold red]")
+    return None
 
-    console.print("[bold red]No se pudo encontrar ningún vault de Obsidian.[/bold red]")
-    return None 
+def extract_frontmatter(note_text: str) -> tuple[dict, str]:
+    """
+    Extrae el frontmatter YAML de una nota de Obsidian y devuelve (frontmatter_dict, cuerpo_sin_frontmatter).
+    Si no hay frontmatter, devuelve ({}, note_text).
+    """
+    if note_text.startswith('---'):
+        parts = note_text.split('---', 2)
+        if len(parts) >= 3:
+            try:
+                frontmatter = yaml.safe_load(parts[1]) or {}
+            except Exception:
+                frontmatter = {}
+            body = parts[2].lstrip('\n')
+            return frontmatter, body
+    return {}, note_text
+
+def save_para_config(config: dict, path: str = "para_config.json"):
+    """Guarda el diccionario de configuración en para_config.json."""
+    with open(path, 'w', encoding='utf-8') as f:
+        json.dump(config, f, indent=4, ensure_ascii=False)
+
+def load_para_config(path: str = "para_config.json") -> dict:
+    """Carga el archivo de configuración para_config.json y lo retorna como dict."""
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+def extract_links_and_backlinks(vault_path: Path) -> tuple[dict, dict, dict]:
+    """
+    Escanea todas las notas del vault y construye:
+      - links_dict: nota -> [notas que enlaza]
+      - backlinks_dict: nota -> [notas que la enlazan]
+      - centrality: nota -> número de backlinks
+    Devuelve (links_dict, backlinks_dict, centrality)
+    """
+    notes = list(vault_path.rglob("*.md"))
+    name_to_path = {n.stem: n for n in notes}
+    links_dict = {str(n): [] for n in notes}
+    backlinks_dict = {str(n): [] for n in notes}
+    # Extraer enlaces internos
+    for note in notes:
+        content = note.read_text(encoding='utf-8')
+        # Buscar [[Nombre de nota]]
+        links = re.findall(r'\[\[([^\]]+)\]\]', content)
+        # Normalizar nombres y filtrar solo notas existentes
+        links = [l.split('|')[0].strip() for l in links]  # Soporta alias Obsidian [[Nota|Alias]]
+        links = [l for l in links if l in name_to_path]
+        links_dict[str(note)] = [str(name_to_path[l]) for l in links]
+    # Calcular backlinks
+    for src, targets in links_dict.items():
+        for tgt in targets:
+            backlinks_dict[tgt].append(src)
+    # Centralidad: número de backlinks
+    centrality = {n: len(backlinks_dict[n]) for n in backlinks_dict}
+    return links_dict, backlinks_dict, centrality
+
+def get_notes_modification_times(vault_path: Path, top_n: int = 20) -> tuple[dict, list]:
+    """
+    Devuelve un dict nota->timestamp y una lista de las top_n notas más recientes.
+    """
+    notes = list(vault_path.rglob("*.md"))
+    mod_times = {str(n): n.stat().st_mtime for n in notes}
+    sorted_notes = sorted(mod_times.items(), key=lambda x: x[1], reverse=True)
+    top_notes = [n for n, _ in sorted_notes[:top_n]]
+    return mod_times, top_notes
+
+def detect_tasks_in_notes(vault_path: Path) -> dict:
+    """
+    Devuelve un dict nota->(total_tareas, tareas_pendientes, tareas_completadas).
+    """
+    notes = list(vault_path.rglob("*.md"))
+    task_info = {}
+    for note in notes:
+        content = note.read_text(encoding='utf-8')
+        total = len(re.findall(r'- \[.\]', content))
+        pendientes = len(re.findall(r'- \[ \]', content))
+        completadas = len(re.findall(r'- \[x\]', content, re.IGNORECASE))
+        task_info[str(note)] = (total, pendientes, completadas)
+    return task_info
+
+def extract_structured_features_from_note(note_text: str, note_path: str = None, db=None, backlinks_dict=None) -> dict:
+    """
+    Extrae features estructurados relevantes para clasificación PARA de una nota Obsidian.
+    Devuelve un dict con flags y valores detectados y una breve explicación de cada uno.
+    """
+    import re, os
+    features = {}
+    explanations = {}
+    # OKR, KPI, SMART
+    features['has_okr'] = bool(re.search(r'OKR', note_text, re.IGNORECASE))
+    explanations['has_okr'] = 'Contiene sección OKR (objetivos y resultados clave)'
+    features['has_kpi'] = bool(re.search(r'KPI', note_text, re.IGNORECASE))
+    explanations['has_kpi'] = 'Contiene sección KPI (indicadores clave de desempeño)'
+    features['has_smart'] = bool(re.search(r'Meta[s]? SMART|SMART goals?', note_text, re.IGNORECASE))
+    explanations['has_smart'] = 'Contiene metas SMART (específicas, medibles, alcanzables, relevantes, temporales)'
+    # Dashboards y reportes
+    features['has_dashboard'] = bool(re.search(r'Dashboard|Reporte|Tracker', note_text, re.IGNORECASE))
+    explanations['has_dashboard'] = 'Contiene dashboard, reporte o tracker'
+    # Roles y asignaciones
+    features['has_roles'] = bool(re.search(r'Manager|Owner|Responsable|Engineer|Equipo|Asignad[oa]', note_text, re.IGNORECASE))
+    explanations['has_roles'] = 'Menciona roles, responsables o equipos'
+    # Deadlines y fechas
+    features['has_deadline'] = bool(re.search(r'\bQ[1-4]\b|\b20\d{2}\b|deadline|entrega|final de|\d{1,2}/\d{1,2}/\d{2,4}|\d{4}-\d{2}-\d{2}', note_text, re.IGNORECASE))
+    explanations['has_deadline'] = 'Contiene deadlines, fechas de entrega o ciclos temporales'
+    # Status YAML o en texto
+    features['status'] = None
+    m = re.search(r'status:\s*([\w ]+)', note_text, re.IGNORECASE)
+    if m:
+        features['status'] = m.group(1).strip()
+    explanations['status'] = 'Status de la nota (ej: Backlog, En progreso, Completado)'
+    # Palabras clave de dominio
+    domain_keywords = ['FinOps', 'Automation', 'Compliance', 'Migration', 'Security', 'Optimization', 'Tagging', 'SLA', 'Pipeline', 'Cloud', 'AWS', 'Costos', 'Ahorro']
+    found_keywords = [kw for kw in domain_keywords if re.search(kw, note_text, re.IGNORECASE)]
+    features['domain_keywords'] = found_keywords
+    explanations['domain_keywords'] = 'Palabras clave de dominio detectadas en la nota'
+    # Tareas
+    features['n_tasks'] = len(re.findall(r'- \[.\]', note_text))
+    features['n_pending'] = len(re.findall(r'- \[ \]', note_text))
+    features['n_completed'] = len(re.findall(r'- \[x\]', note_text, re.IGNORECASE))
+    explanations['n_tasks'] = 'Cantidad total de tareas (checkboxes) en la nota'
+    explanations['n_pending'] = 'Cantidad de tareas pendientes'
+    explanations['n_completed'] = 'Cantidad de tareas completadas'
+    # Tamaño de archivo y cantidad de palabras
+    features['file_size'] = os.path.getsize(note_path) if note_path and os.path.exists(note_path) else None
+    explanations['file_size'] = 'Tamaño del archivo en bytes'
+    features['word_count'] = len(re.findall(r'\w+', note_text))
+    explanations['word_count'] = 'Cantidad de palabras en la nota'
+    # Presencia de imágenes/tablas
+    features['has_images'] = bool(re.search(r'!\[.*?\]\(.*?\)', note_text))
+    explanations['has_images'] = 'Contiene imágenes embebidas'
+    features['has_tables'] = bool(re.search(r'\|.*\|', note_text))
+    explanations['has_tables'] = 'Contiene tablas markdown'
+    # Vecinos semánticos predominantes (requiere db)
+    features['semantic_neighbors_majority'] = None
+    if db and note_text:
+        try:
+            results = db.search_similar_notes(note_text, n_results=5)
+            categories = [meta.get('category') for meta, _ in results if meta.get('category')]
+            if categories:
+                from collections import Counter
+                most_common = Counter(categories).most_common(1)[0][0]
+                features['semantic_neighbors_majority'] = most_common
+        except Exception:
+            pass
+    explanations['semantic_neighbors_majority'] = 'Categoría predominante entre los vecinos semánticos (por embeddings)'
+    # Historial de clasificación previa (requiere db)
+    features['previous_classification'] = None
+    if db and note_path:
+        try:
+            meta_list = db.get_all_notes_metadata()
+            for meta in meta_list:
+                if meta.get('path') == note_path:
+                    features['previous_classification'] = meta.get('category')
+                    break
+        except Exception:
+            pass
+    explanations['previous_classification'] = 'Categoría previa registrada en la base de datos para esta nota'
+    # Distribución de categorías en backlinks
+    features['backlinks_category_distribution'] = None
+    if backlinks_dict and note_path and note_path in backlinks_dict:
+        from collections import Counter
+        parent_folders = [os.path.dirname(src) for src in backlinks_dict[note_path]]
+        cat_counter = Counter()
+        for folder in parent_folders:
+            if "01-Projects" in folder:
+                cat_counter['Projects'] += 1
+            elif "02-Areas" in folder:
+                cat_counter['Areas'] += 1
+            elif "03-Resources" in folder:
+                cat_counter['Resources'] += 1
+        features['backlinks_category_distribution'] = dict(cat_counter)
+    explanations['backlinks_category_distribution'] = 'Distribución de categorías de las notas que enlazan a esta nota'
+    # Retornar features y explicaciones
+    return {k: {'value': features[k], 'explanation': explanations.get(k, '')} for k in features}
+
+def score_para_classification(features: dict, category_weights: dict) -> tuple[str, int, dict]:
+    """
+    Calcula el puntaje de clasificación para cada categoría PARA y determina el ganador.
+    Devuelve (categoría_ganadora, puntaje, desglose_puntaje).
+    """
+    scores = {}
+    breakdowns = {}
+
+    for category, weights in category_weights.items():
+        total_score = 0
+        score_breakdown = {}
+
+        # El feature 'llm_prediction' ahora es solo el nombre de la categoría predicha por la IA
+        llm_prediction_category = features.get('llm_prediction')
+        if llm_prediction_category == category:
+            weight = weights.get('llm_prediction', 0)
+            total_score += weight
+            if weight != 0:
+                score_breakdown['llm_prediction'] = f"+{weight}"
+        
+        # Iterar sobre los otros features
+        for feature, value in features.items():
+            if feature == 'llm_prediction':
+                continue
+
+            weight = weights.get(feature, 0)
+            if weight == 0:
+                continue
+
+            # Puntuación para valores booleanos y numéricos
+            feature_score = 0
+            if isinstance(value, bool) and value:
+                feature_score = weight
+            elif isinstance(value, (int, float)):
+                # Ponderar el valor numérico (ej. 0.0 a 1.0) por el peso del factor
+                # Asegura que el valor esté normalizado (ej. 0-1) si es necesario
+                feature_score = value * weight
+            
+            if feature_score != 0:
+                total_score += feature_score
+                # Usar un formato consistente para el desglose
+                sign = "+" if feature_score > 0 else ""
+                score_breakdown[feature] = f"{sign}{int(feature_score)}"
+
+        scores[category] = total_score
+        breakdowns[category] = score_breakdown
+
+    # Determinar la categoría ganadora
+    if not scores:
+        return "Inbox", 0, {}
+
+    # Umbral mínimo de confianza. Si nadie lo supera, se queda en Inbox.
+    MIN_SCORE_THRESHOLD = 5 
+
+    # Filtrar categorías que no alcanzan el umbral
+    eligible_scores = {cat: score for cat, score in scores.items() if score >= MIN_SCORE_THRESHOLD}
+    
+    if not eligible_scores:
+        # Devolver el desglose del que más se acercó, para transparencia
+        winner_if_no_threshold = max(scores, key=scores.get)
+        return "Inbox", scores[winner_if_no_threshold], breakdowns[winner_if_no_threshold]
+
+    winner = max(eligible_scores, key=eligible_scores.get)
+    return winner, int(scores[winner]), breakdowns[winner] 

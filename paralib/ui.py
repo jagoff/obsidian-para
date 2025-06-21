@@ -26,14 +26,8 @@ Módulo para todos los componentes de la interfaz de usuario en la terminal.
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 #
-import sys
-import time
-import select
-import tty
-import termios
 from pathlib import Path
 from collections import Counter
-import subprocess
 
 from rich.console import Console
 from rich.live import Live
@@ -43,12 +37,14 @@ from rich.table import Table
 from rich.prompt import Prompt
 
 from .db import ChromaPARADatabase
+from paralib.logger import logger
 
 from prompt_toolkit.application import Application
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout.layout import Layout as PtLayout
 from prompt_toolkit.layout.containers import Window, HSplit
 from prompt_toolkit.layout.controls import FormattedTextControl
+from prompt_toolkit.styles import Style
 
 console = Console()
 
@@ -56,175 +52,167 @@ class TreeNode:
     """Nodo en la estructura de árbol para el selector."""
     def __init__(self, path: Path, parent=None):
         self.path = path
+        self.name = path.name
         self.parent = parent
         self.children = []
         self.is_expanded = False
         self.is_selected = False
+        self.is_dir = path.is_dir()
+
+    def add_child(self, node):
+        self.children.append(node)
 
     def toggle_expanded(self):
-        self.is_expanded = not self.is_expanded
+        if self.is_dir:
+            self.is_expanded = not self.is_expanded
 
-    def toggle_selected(self):
+    def toggle_selected(self, recursive=True):
         self.is_selected = not self.is_selected
-        # Propagar selección a los hijos
-        for child in self.children:
-            child.set_selected_recursive(self.is_selected)
+        # Selección recursiva hacia abajo
+        if recursive and self.children:
+            for child in self.children:
+                child.set_selected(self.is_selected, recursive=True)
+        # Selección hacia arriba
+        if self.parent and not self.is_selected:
+            self.parent.set_selected(False, recursive=False)
+        if self.parent and self.is_selected:
+            if all(child.is_selected for child in self.parent.children):
+                self.parent.set_selected(True, recursive=False)
 
-    def set_selected_recursive(self, selected: bool):
-        self.is_selected = selected
-        for child in self.children:
-            child.set_selected_recursive(selected)
-            
-    @property
-    def name(self):
-        return self.path.name
+    def set_selected(self, value, recursive=True):
+        self.is_selected = value
+        if recursive and self.children:
+            for child in self.children:
+                child.set_selected(value, recursive=True)
 
 
-def build_file_tree(root_path: Path, protected_folders: set[str]) -> TreeNode:
-    """Construye el árbol de directorios a partir de una ruta raíz."""
-    root_node = TreeNode(root_path)
-
-    def _build_recursively(current_path: Path, parent_node: TreeNode):
+def build_tree(path, parent=None, is_root=True):
+    node = TreeNode(path, parent)
+    node.is_expanded = is_root  # Solo la raíz expandida al inicio
+    if path.is_dir():
         try:
-            for item_path in sorted(current_path.iterdir()):
-                if item_path.is_dir() and not item_path.name.startswith('.') and item_path.name not in protected_folders:
-                    child_node = TreeNode(item_path, parent=parent_node)
-                    parent_node.children.append(child_node)
-                    _build_recursively(item_path, child_node)
-        except (IOError, PermissionError):
-            pass # Ignorar directorios no legibles
-            
-    _build_recursively(root_path, root_node)
-    return root_node
+            for child in sorted(path.iterdir(), key=lambda p: p.name.lower()):
+                if child.name.startswith('.'):
+                    continue
+                if child.is_dir():
+                    node.add_child(build_tree(child, node, is_root=False))
+        except Exception:
+            pass
+    return node
 
+
+def normalize_folder_name(name: str) -> str:
+    """Normaliza el nombre de carpeta PARA para comparación insensible a mayúsculas/minúsculas y espacios."""
+    return name.lower().replace('-', '').replace(' ', '')
+
+PROTECTED_FOLDERS = {normalize_folder_name(n) for n in [
+    "01-Projects", "02-Areas", "03-Resources", "04-Archive", "00-Inbox", "Inbox", "00-inbox", "01-projects", "02-areas", "03-resources", "04-archive"
+]}
 
 def select_folders_to_exclude(vault_path: Path) -> list[str]:
     """
-    Muestra un selector de carpetas interactivo para que el usuario elija
-    cuáles excluir del proceso de indexado.
+    Selector de carpetas en árbol, solo la raíz expandida al inicio.
     """
-    protected_folders = {"01-Projects", "02-Areas", "03-Resources", "04-Archive", "00-Inbox", ".obsidian", ".para_db", "backups", "Templates", ".git"}
+    root_node = build_tree(vault_path, is_root=True)
+    flat_nodes = []
 
-    try:
-        root_node = build_file_tree(vault_path, protected_folders)
-        if not root_node.children:
-            console.print("[yellow]No se encontraron carpetas que se puedan excluir.[/yellow]")
-            return []
-        
-        flat_nodes = []
-        
-        def flatten_tree(node: TreeNode, level: int = 0):
-            if node != root_node:
-                flat_nodes.append((node, level))
-            if node.is_expanded:
-                for child in node.children:
-                    flatten_tree(child, level + 1)
+    def flatten(node, level=0):
+        flat_nodes.append((node, level))
+        if node.is_expanded:
+            for child in node.children:
+                flatten(child, level+1)
 
-        def update_flat_nodes():
-            nonlocal flat_nodes
-            flat_nodes = []
-            for child in root_node.children:
-                flatten_tree(child, 0)
+    def update_flat_nodes():
+        flat_nodes.clear()
+        flatten(root_node, 0)
 
-        update_flat_nodes()
-        
-        current_line = 0
+    update_flat_nodes()
+    current_line = 0
 
-        # Key Bindings
-        bindings = KeyBindings()
+    bindings = KeyBindings()
 
-        @bindings.add('c-c')
-        @bindings.add('q')
-        def _(event):
-            """ Salir. """
-            event.app.exit(result=[])
+    @bindings.add('c-c')
+    @bindings.add('q')
+    def _(event):
+        event.app.exit(result=[])
 
-        @bindings.add('down')
-        def _(event):
-            nonlocal current_line
-            current_line = min(current_line + 1, len(flat_nodes) - 1)
+    @bindings.add('down')
+    def _(event):
+        nonlocal current_line
+        current_line = min(current_line + 1, len(flat_nodes) - 1)
 
-        @bindings.add('up')
-        def _(event):
-            nonlocal current_line
-            current_line = max(current_line - 1, 0)
+    @bindings.add('up')
+    def _(event):
+        nonlocal current_line
+        current_line = max(current_line - 1, 0)
 
-        @bindings.add('right')
-        def _(event):
-            node, _ = flat_nodes[current_line]
-            if not node.is_expanded:
-                node.toggle_expanded()
-                update_flat_nodes()
+    @bindings.add('right')
+    def _(event):
+        node, _ = flat_nodes[current_line]
+        # No expandir el nodo raíz
+        if node.parent is not None:
+            node.toggle_expanded()
+            update_flat_nodes()
 
-        @bindings.add('left')
-        def _(event):
-            nonlocal current_line
-            node, _ = flat_nodes[current_line]
+    @bindings.add('left')
+    def _(event):
+        nonlocal current_line
+        node, _ = flat_nodes[current_line]
+        # No colapsar el nodo raíz ni navegar hacia su padre
+        if node.parent is not None:
             if node.is_expanded:
                 node.toggle_expanded()
                 update_flat_nodes()
-            # Si no está expandido, subimos al padre
-            elif node.parent and node.parent != root_node:
-                try:
-                    # Encontrar el índice del padre en la lista plana
-                    parent_index = [n for n, l in flat_nodes].index(node.parent)
-                    current_line = parent_index
-                except ValueError:
-                    pass
+            elif node.parent:
+                # Solo navegar hacia el padre si no es el nodo raíz
+                parent_idx = None
+                for idx, (n, lvl) in enumerate(flat_nodes):
+                    if n == node.parent:
+                        parent_idx = idx
+                        break
+                if parent_idx is not None:
+                    current_line = parent_idx
 
-        @bindings.add(' ')
-        def _(event):
-            node, _ = flat_nodes[current_line]
+    @bindings.add(' ')  # Espacio para seleccionar
+    def _(event):
+        node, _ = flat_nodes[current_line]
+        # No seleccionar el nodo raíz
+        if node.parent is not None:
             node.toggle_selected()
-        
-        @bindings.add('enter')
-        def _(event):
-            selected = [node.path for node, _ in flat_nodes if node.is_selected]
-            event.app.exit(result=[str(p.resolve()) for p in selected])
+            update_flat_nodes()
 
-        def get_formatted_text():
-            result = []
-            for i, (node, level) in enumerate(flat_nodes):
-                prefix = '  ' * level
-                if node.children:
-                    icon = '▼' if node.is_expanded else '▶'
-                else:
-                    icon = ' '
-                
-                checkbox = '[X]' if node.is_selected else '[ ]'
-                
-                line_style = 'class:reverse' if i == current_line else ''
-                
-                result.append((line_style, f"{prefix}{icon} {checkbox} {node.name}\n"))
-            
-            if not result:
-                result.append(('', 'No hay directorios para mostrar.'))
+    @bindings.add('enter')
+    def _(event):
+        selected = [str(node.path.resolve()) for node, _ in flat_nodes if node.is_selected and node.is_dir]
+        event.app.exit(result=selected)
 
-            return result
+    def get_formatted_text():
+        result = []
+        for i, (node, level) in enumerate(flat_nodes):
+            prefix = '  ' * level
+            icon = '▼' if node.is_expanded and node.children else ('▶' if node.children else ' ')
+            checkbox = '[X]' if node.is_selected else '[ ]'
+            style = 'class:reverse' if i == current_line else ''
+            result.append((style, f"{prefix}{icon} {checkbox} {node.name}\n"))
+        if not result:
+            result.append(('', 'No hay directorios para mostrar.'))
+        return result
 
-        # Layout y Application
-        header = "Seleccioná carpetas a excluir. [Espacio] marca, [Enter] confirma, [q] sale.\n" + \
-                 "---------------------------------------------------------------------\n"
-        control = FormattedTextControl(get_formatted_text)
-        
-        layout = PtLayout(
-            container=HSplit([
-                Window(content=FormattedTextControl(header), height=2),
-                Window(content=control)
-            ])
-        )
-        
-        app = Application(layout=layout, key_bindings=bindings, full_screen=True)
-        
-        try:
-            selected_paths = app.run()
-            return selected_paths if selected_paths else []
-        except Exception as e:
-            # Salir de la pantalla completa y mostrar el error
-            console.print(f"[bold red]Ocurrió un error en el selector: {e}[/bold red]")
-            return []
+    header = "Seleccioná carpetas a excluir. [Espacio] marca, [Enter] confirma, [q] sale.\n" + \
+             "---------------------------------------------------------------------\n"
+    control = FormattedTextControl(get_formatted_text)
+    layout = PtLayout(
+        container=HSplit([
+            Window(content=FormattedTextControl(header), height=2),
+            Window(content=control)
+        ])
+    )
+    app = Application(layout=layout, key_bindings=bindings, full_screen=True)
+    try:
+        selected_paths = app.run()
+        return selected_paths if selected_paths else []
     except Exception as e:
-        console.print(f"[bold red]Ocurrió un error al construir el árbol: {e}[/bold red]")
+        console.print(f"[bold red]Ocurrió un error en el selector: {e}[/bold red]")
         return []
 
 
@@ -321,6 +309,9 @@ def run_monitor_dashboard(db: ChromaPARADatabase):
                         break
                 time.sleep(2)
                 live.update(generate_dashboard())
+    except Exception as e:
+        logger.error(f"Error in monitor dashboard: {e}", exc_info=True)
+        raise
     finally:
         termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings) 
 
@@ -340,28 +331,37 @@ def list_ollama_models() -> list[dict]:
         console.print(f"[bold red]Error al listar modelos de Ollama: {e}[/bold red]")
         return []
 
-def select_ollama_model(suggested: str = "llama3.2:3b") -> str:
+def select_ollama_model(models: list[str], recommended: str) -> str:
+    """Muestra una lista numerada de modelos y permite elegir por número o Enter para recomendado."""
+    console.print("\n[bold blue]Modelos Ollama locales disponibles:[/bold blue]")
+    for idx, model in enumerate(models, 1):
+        rec = " [RECOMENDADO]" if model == recommended else ""
+        console.print(f"  [cyan]{idx}.[/cyan] {model}{rec}")
+    console.print(f"\n[dim]Selecciona el modelo a usar (1-{len(models)}), o presiona Enter para '{recommended}':[/dim]")
+    while True:
+        choice = input(f"Modelo [1-{len(models)}] (Enter para '{recommended}'): ").strip()
+        if not choice:
+            return recommended
+        if choice.isdigit() and 1 <= int(choice) <= len(models):
+            return models[int(choice)-1]
+        console.print(f"[red]Opción inválida. Ingresa un número entre 1 y {len(models)}, o Enter para el recomendado.[/red]")
+
+def interactive_note_review_loop(notes, show_detail_fn, input_fn=input):
     """
-    Muestra una tabla de modelos locales y permite elegir uno, sugiriendo el mejor.
+    Ciclo interactivo estándar para revisión de notas.
+    - Muestra el detalle de cada nota con show_detail_fn(note).
+    - Permite feedback/corrección.
+    - Si el usuario presiona 'q', termina inmediatamente y retorna el resto para modo automático.
+    Retorna: (notas_procesadas, notas_restantes)
     """
-    models = list_ollama_models()
-    if not models:
-        console.print("[bold red]No se encontraron modelos locales de Ollama.[/bold red]")
-        return None
-    table = Table(title="Modelos Ollama locales disponibles:")
-    table.add_column("Nombre", style="cyan")
-    table.add_column("Tamaño", style="magenta")
-    table.add_column("Recomendación", style="green")
-    for m in models:
-        rec = "[RECOMENDADO]" if m["name"] == suggested else ""
-        table.add_row(m["name"], m["size"], rec)
-    console.print(table)
-    # Sugerencia automática
-    if any(m["name"] == suggested for m in models):
-        default = suggested
-        console.print(f"[bold green]Sugerido:[/bold green] {suggested}")
-    else:
-        default = models[0]["name"]
-        console.print(f"[yellow]No se encontró el modelo sugerido. Usando el primero disponible: {default}[/yellow]")
-    choice = Prompt.ask(f"¿Qué modelo quieres usar? (Enter para '{default}')", choices=[m["name"] for m in models], default=default)
-    return choice 
+    processed = []
+    for note in notes:
+        show_detail_fn(note)
+        opcion = input_fn("Opción [1-3/q]: ").strip().lower()
+        if opcion == "q":
+            print("Edición interactiva desactivada. Clasificación automática en curso...")
+            break
+        # Aquí puedes manejar feedback/corrección según la lógica del flujo
+        processed.append(note)
+    restantes = notes[len(processed):]
+    return processed, restantes 

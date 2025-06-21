@@ -1,0 +1,12 @@
+{
+  "vault_path": "",
+  "chroma_db_path": "./para_chroma_db",
+  "ollama_host": "http://localhost:11434",
+  "ollama_model": "llama3.2:3b",
+  "dashboard_port": 7860,
+  "auto_backup": true,
+  "backup_path": "./backups",
+  "keywords": [],
+  "rules": [],
+  "profile": "Default"
+} 

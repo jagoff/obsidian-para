@@ -1,7 +1,13 @@
-typer[all]==0.12.3
+typer>=0.16.0
+click>=8.1.7
+rich-click>=1.8.9
 rich==13.7.1
 prompt-toolkit>=3.0.0
 sentence-transformers==2.7.0
 chromadb==0.4.24
 numpy<2.0
 ollama>=0.2.0
+PyYAML>=6.0
+streamlit>=1.35.0
+plotly>=5.20.0
+bootstrap-icons>=1.11.3
