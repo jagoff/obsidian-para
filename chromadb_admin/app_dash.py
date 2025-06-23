@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import dash
 from dash import html, dcc, dash_table, Input, Output, State
 import dash_bootstrap_components as dbc

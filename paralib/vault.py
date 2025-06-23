@@ -33,6 +33,8 @@ import glob
 from rich.console import Console
 import yaml
 import re
+import signal
+from contextlib import contextmanager
 
 console = Console()
 CACHE_FILE = Path(".para_cache.json")
@@ -93,28 +95,121 @@ def _save_vault_path_to_cache(vault_path: Path):
         json.dump({"vault_path": str(vault_path.resolve())}, f)
 
 def _detect_vault_automatically() -> Path | None:
-    """Busca un vault de Obsidian en ubicaciones comunes de forma dinámica."""
-    console.print("[dim]🔎 Buscando vaults de Obsidian en ubicaciones conocidas...[/dim]")
+    """
+    Detecta automáticamente vaults de Obsidian en ubicaciones comunes.
+    Evita timeouts en rutas en la nube y maneja errores de red graciosamente.
+    """
+    @contextmanager
+    def timeout_handler(seconds):
+        """Maneja timeouts para operaciones de red"""
+        def timeout_signal_handler(signum, frame):
+            raise TimeoutError(f"Operación cancelada después de {seconds} segundos")
+        
+        # Solo usar signal en Unix
+        if hasattr(signal, 'SIGALRM'):
+            old_handler = signal.signal(signal.SIGALRM, timeout_signal_handler)
+            signal.alarm(seconds)
+            try:
+                yield
+            finally:
+                signal.alarm(0)
+                signal.signal(signal.SIGALRM, old_handler)
+        else:
+            # En sistemas sin SIGALRM, usar timeout más simple
+            yield
     
+    def is_cloud_path(path: Path) -> bool:
+        """Detecta si una ruta está en la nube (Google Drive, iCloud, etc.)"""
+        path_str = str(path).lower()
+        cloud_indicators = [
+            'cloudstorage',
+            'googledrive',
+            'icloud',
+            'dropbox',
+            'onedrive',
+            'box',
+            'mega'
+        ]
+        return any(indicator in path_str for indicator in cloud_indicators)
+    
+    def safe_rglob(path: Path, pattern: str, max_depth: int = 3) -> list[Path]:
+        """Búsqueda recursiva segura con timeout y límite de profundidad"""
+        results = []
+        is_cloud = is_cloud_path(path)
+        is_google_drive = 'googledrive' in str(path).lower()
+        if is_google_drive:
+            timeout_seconds = 20
+            search_depth = 5  # Permitir profundidad suficiente para 'Mi unidad/Obsidian'
+        elif is_cloud:
+            timeout_seconds = 15
+            search_depth = 2
+        else:
+            timeout_seconds = 5
+            search_depth = max_depth
+        if is_cloud:
+            cloud_type = "Google Drive" if is_google_drive else "nube"
+            console.print(f"[dim]Buscando en {cloud_type} (timeout: {timeout_seconds}s, profundidad: {search_depth}): {shorten_path(path)}[/dim]")
+        try:
+            with timeout_handler(timeout_seconds):
+                if is_google_drive:
+                    # Usar rglob manual con control de profundidad
+                    def rglob_depth(base, pat, depth):
+                        if depth < 0:
+                            return
+                        try:
+                            for entry in base.iterdir():
+                                if entry.is_dir():
+                                    if entry.name == pat:
+                                        results.append(entry)
+                                        console.print(f"[green]✓ Vault encontrado en {shorten_path(path)}: {shorten_path(entry.parent)}[/green]")
+                                    else:
+                                        rglob_depth(entry, pat, depth-1)
+                        except Exception as e:
+                            console.print(f"[dim]No se pudo acceder a {base}: {e}[/dim]")
+                    rglob_depth(path, ".obsidian", search_depth)
+                else:
+                    # Búsqueda limitada por profundidad para otras rutas
+                    for depth in range(search_depth + 1):
+                        if depth == 0:
+                            search_path = path
+                        else:
+                            search_path = path / ("*/" * depth)
+                        try:
+                            for item in search_path.glob(pattern if depth == 0 else "*/" + pattern):
+                                if item.is_dir() and item.name == ".obsidian":
+                                    results.append(item)
+                                    console.print(f"[green]✓ Vault encontrado en {shorten_path(path)}: {shorten_path(item.parent)}[/green]")
+                                    break
+                        except (PermissionError, OSError) as e:
+                            console.print(f"[dim]No se pudo acceder a {search_path}: {e}[/dim]")
+                            continue
+        except TimeoutError:
+            console.print(f"[dim]Timeout al buscar en {shorten_path(path)} (después de {timeout_seconds}s)[/dim]")
+        except Exception as e:
+            console.print(f"[dim]Error al buscar en {shorten_path(path)}: {e}[/dim]")
+        return results
+
     potential_vaults = []
+    
     # Usar la función dinámica para obtener las ubicaciones base
     search_locations = _get_common_vault_locations()
-
-    for location in set(search_locations): # Usar set para evitar duplicados
+    
+    # Buscar en todas las ubicaciones, priorizando locales pero incluyendo nube
+    for location in search_locations:
         if not location.is_dir():
             continue
-        # Buscar recursivamente carpetas .obsidian
-        try:
-            # Usamos rglob para una búsqueda más profunda y flexible
-            for obsidian_dir in location.rglob(".obsidian"):
-                if obsidian_dir.is_dir():
-                    vault_path = obsidian_dir.parent
-                    if vault_path not in potential_vaults:
-                        potential_vaults.append(vault_path)
-        except PermissionError:
-            # Ignorar carpetas a las que no tenemos acceso
-            console.print(f"[dim]No se pudo acceder a {location}, omitiendo.[/dim]")
-            continue
+        
+        is_cloud = is_cloud_path(location)
+        location_type = "nube" if is_cloud else "local"
+        console.print(f"[dim]Buscando vaults en {location_type}: {shorten_path(location)}[/dim]")
+        
+        obsidian_dirs = safe_rglob(location, ".obsidian")
+        
+        for obsidian_dir in obsidian_dirs:
+            vault_path = obsidian_dir.parent
+            if vault_path not in potential_vaults:
+                potential_vaults.append(vault_path)
+                console.print(f"[green]✓ Vault encontrado: {shorten_path(vault_path)}[/green]")
 
     if not potential_vaults:
         console.print("[bold yellow]⚠️ No se encontró ningún vault de Obsidian en las ubicaciones conocidas.[/bold yellow]")

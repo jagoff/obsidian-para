@@ -1,5 +1,13 @@
 # CHANGELOG
 
+## [2.1.0] - 2024-06-21
+### Mejoras
+- Detección robusta de vaults en Google Drive, iCloud y otras nubes (búsqueda profunda y timeouts inteligentes).
+- Uso de caché para vaults detectados y opción de forzar detección o especificar manualmente.
+- Mejoras en la CLI: mensajes más claros, manejo de errores y auto-recuperación.
+- Nueva sección de troubleshooting y FAQ en la documentación.
+- Mejoras en la edición de pesos y robustez ante archivos faltantes.
+
 ## [2.0.0] - 2024-06-20
 ### Added
 - Refactor total de la CLI y lógica de negocio.

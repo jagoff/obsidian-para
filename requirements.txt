@@ -1,3 +1,7 @@
+# Requisitos para el sistema PARA
+# Instala con: pip install -r requirements.txt
+# Mantén actualizado este archivo si agregas nuevas dependencias
+
 typer>=0.16.0
 click>=8.1.7
 rich-click>=1.8.9
@@ -10,4 +14,3 @@ ollama>=0.2.0
 PyYAML>=6.0
 streamlit>=1.35.0
 plotly>=5.20.0
-bootstrap-icons>=1.11.3

@@ -28,6 +28,11 @@ Módulo para todos los componentes de la interfaz de usuario en la terminal.
 #
 from pathlib import Path
 from collections import Counter
+import termios
+import sys
+import tty
+import time
+import select
 
 from rich.console import Console
 from rich.live import Live

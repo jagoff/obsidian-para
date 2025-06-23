@@ -1,8 +1,23 @@
+#!/usr/bin/env python3
 """
 backup_manager.py
 
 Gestiona la creación de copias de seguridad del vault de Obsidian.
-"""
+
+USO:
+  python backup_manager.py --action backup --vault-path "/ruta/a/tu/vault"
+  python backup_manager.py --action list --vault-path "/ruta/a/tu/vault"
+  python backup_manager.py --action restore --vault-path "/ruta/a/tu/vault" --backup-file backup_xxx.zip
+
+RECOMENDACIONES:
+- Realiza backups antes de grandes refactorizaciones o limpiezas.
+- Puedes restaurar cualquier backup desde la CLI o manualmente.
+- El sistema PARA también realiza backups automáticos si está configurado.
+- Los backups se guardan en la carpeta ./backups por defecto.
+
+Integración:
+- Puedes llamar este script desde la CLI principal o usarlo de forma independiente.
+
 #
 # MIT License
 #
@@ -26,6 +41,7 @@ Gestiona la creación de copias de seguridad del vault de Obsidian.
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 #
+"""
 import sys
 import os
 from pathlib import Path

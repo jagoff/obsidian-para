@@ -1,4 +1,6 @@
 {
+  // Puedes dejar vault_path vacío para detección automática (incluye Google Drive, iCloud, etc.)
+  // Si tu vault está en la nube y no se detecta, especifica la ruta completa aquí.
   "vault_path": "",
   "chroma_db_path": "./para_chroma_db",
   "ollama_host": "http://localhost:11434",

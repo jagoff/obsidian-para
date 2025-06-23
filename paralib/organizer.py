@@ -39,6 +39,7 @@ from paralib.vault import (
     score_para_classification, 
     load_para_config
 )
+from paralib.analyze_manager import AnalyzeManager
 from rich.table import Table
 from rich import box
 
@@ -201,6 +202,9 @@ def _process_notes_classification(vault_path: Path, db: ChromaPARADatabase, extr
         console.print("[bold red]Error: No se pudo cargar 'para_factor_weights.json'. Asegúrate de que existe y es un JSON válido.[/bold red]")
         return
 
+    # Instanciar AnalyzeManager una sola vez
+    analyze_manager = AnalyzeManager(vault_path)
+
     with Progress(console=console) as progress:
         task = progress.add_task(progress_title, total=len(notes_to_process))
         for note in notes_to_process:
@@ -217,6 +221,12 @@ def _process_notes_classification(vault_path: Path, db: ChromaPARADatabase, extr
             features = extract_structured_features_from_note(content, note_path=str(note), db=db)
             feature_values = {k: v['value'] for k, v in features.items()}
             feature_values['llm_prediction'] = llm_category
+            # 2b. Agregar features de AnalyzeManager
+            analyze_features = analyze_manager.get_features_for_note(note)
+            feature_values.update(analyze_features)
+            # También agregarlos al breakdown de features
+            for k, v in analyze_features.items():
+                features[k] = {'value': v, 'explanation': f'Feature estadístico de AnalyzeManager: {k}'}
 
             # 3. Puntuar con la matriz
             final_category, final_score, score_breakdown = score_para_classification(feature_values, category_weights)
