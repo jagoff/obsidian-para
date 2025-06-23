@@ -1,7 +1,15 @@
 """
 paralib/vault.py
 
-Lógica para encontrar, cachear y gestionar la ruta del vault de Obsidian.
+Vault Manager para PARA System.
+- Detección automática y robusta de vaults de Obsidian
+- Gestión de caché y configuración
+- Utilidades para manipulación de vaults
+
+Uso:
+    from paralib.vault import find_vault, load_para_config
+    vault_path = find_vault()
+    config = load_para_config()
 """
 #
 # MIT License
