@@ -563,5 +563,63 @@ def clean_manager(
         raise typer.Exit(1)
     run_clean_manager(vault_path_obj)
 
+@app.command()
+def vault(
+    force_detect: bool = typer.Option(False, "--force", help="Forzar detección automática, ignorando caché y config."),
+    show_only: bool = typer.Option(False, "--show", help="Solo mostrar el vault actual sin modificar nada."),
+):
+    """Muestra o detecta el vault de Obsidian usando el Vault Manager."""
+    from paralib.vault import find_vault
+    from rich import print as rprint
+    if show_only:
+        from paralib.vault import load_para_config
+        config = load_para_config()
+        vault_path = config.get("vault_path", None)
+        if vault_path:
+            rprint(f"[bold green]Vault actual:[/bold green] [cyan]{vault_path}[/cyan]")
+        else:
+            rprint("[yellow]No hay vault configurado en para_config.json.[/yellow]")
+        return
+    vault = find_vault(force_cache=not force_detect)
+    if vault:
+        rprint(f"[bold green]Vault detectado:[/bold green] [cyan]{vault}[/cyan]")
+    else:
+        rprint("[red]No se pudo detectar ningún vault automáticamente.[/red]")
+
+@app.command()
+def qa():
+    """Ejecuta diagnóstico y QA automatizado (autoheal + tests)."""
+    import subprocess
+    import sys
+    from paralib.logger import logger
+    print("[QA] Ejecutando diagnóstico y QA completo...")
+    logger.info("[QA] Ejecutando diagnóstico y QA completo...")
+    # Llama a autoheal
+    try:
+        autoheal()
+    except Exception as e:
+        print(f"[QA] Error en autoheal: {e}")
+        logger.error(f"[QA] Error en autoheal: {e}")
+    # Ejecuta tests unitarios
+    print("[QA] Ejecutando tests unitarios...")
+    logger.info("[QA] Ejecutando tests unitarios...")
+    try:
+        result = subprocess.run([sys.executable, '-m', 'pytest', 'paralib/tests/', '--maxfail=3', '--disable-warnings', '-v'],
+                               env={**os.environ, 'PYTHONPATH': '.'},
+                               capture_output=True, text=True)
+        print(result.stdout)
+        logger.info(result.stdout)
+        if result.returncode == 0:
+            print("[QA] Todos los tests pasaron correctamente.")
+            logger.info("[QA] Todos los tests pasaron correctamente.")
+        else:
+            print("[QA] Algunos tests fallaron. Revisa la salida anterior para detalles.")
+            logger.warning("[QA] Algunos tests fallaron. Revisa la salida anterior para detalles.")
+    except Exception as e:
+        print(f"[QA] No se pudieron ejecutar los tests: {e}")
+        logger.error(f"[QA] No se pudieron ejecutar los tests: {e}")
+    print("[QA] Diagnóstico y QA completados.")
+    logger.info("[QA] Diagnóstico y QA completados.")
+
 if __name__ == "__main__":
     app() 
