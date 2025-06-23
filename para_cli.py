@@ -246,285 +246,107 @@ def monitor(
         raise typer.Exit(1)
 
 @app.command()
-def doctor():
-    """
-    Diagnóstico automático del sistema PARA. Limpia errores antiguos si ya no son relevantes.
-    """
+def doctor(
+    clean_logs: bool = typer.Option(False, "--clean-logs", help="Limpiar logs antes del diagnóstico."),
+    only_tests: bool = typer.Option(False, "--only-tests", help="Ejecutar solo los tests unitarios."),
+    full: bool = typer.Option(False, "--full", help="Diagnóstico completo: backup, reparación, logs, tests."),
+):
+    """Diagnóstico y QA completo del sistema PARA: backup, reparación, logs, tests. Punto único de salud del sistema."""
+    import subprocess
+    import sys
+    from pathlib import Path
+    from paralib.logger import logger
+    print("[DOCTOR] Iniciando diagnóstico y QA completo...")
+    logger.info("[DOCTOR] Iniciando diagnóstico y QA completo...")
+    # Limpiar logs si se solicita
     log_path = Path("logs/para.log")
-    if log_path.exists():
+    if clean_logs and log_path.exists():
         with open(log_path, "w") as f:
             f.write("")
-        print("🧹 Log de errores limpiado. Si ocurre un nuevo error, aparecerá aquí.")
-    else:
-        print("No se encontró logs/para.log. Todo limpio.")
-    print("Diagnóstico completado. El sistema está listo para usar.")
-
-@app.command()
-def clean(ctx: typer.Context):
-    """Limpia todos los archivos y carpetas generados por el sistema (logs, backups, para_chroma_db, caché, etc.) y reinicia la base de datos."""
-    import shutil, glob
-    console.print("[bold red]⚠️  Esta acción eliminará logs, backups y la base de datos. Se recomienda tener un backup reciente.[/bold red]", markup=SUPPORTS_COLOR)
-    # Borrar logs
-    if os.path.exists('logs'):
-        shutil.rmtree('logs')
-        console.print("[yellow]🧹 Carpeta de logs eliminada.[/yellow]", markup=SUPPORTS_COLOR)
-    # Borrar backups
-    if os.path.exists('backups'):
-        shutil.rmtree('backups')
-        console.print("[yellow]🧹 Carpeta de backups eliminada.[/yellow]", markup=SUPPORTS_COLOR)
-    # Borrar base de datos
-    if os.path.exists('para_chroma_db'):
-        shutil.rmtree('para_chroma_db')
-        console.print("[yellow]🧹 Base de datos ChromaDB eliminada.[/yellow]", markup=SUPPORTS_COLOR)
-    # Borrar caché
-    if os.path.exists('.para_cache.json'):
-        os.remove('.para_cache.json')
-        console.print("[yellow]🧹 Caché de vault eliminada.[/yellow]", markup=SUPPORTS_COLOR)
-    # Borrar archivos temporales
-    for pattern in ['*.log', '*.tmp', '*.bak']:
-        for f in glob.glob(pattern):
-            try:
-                os.remove(f)
-                console.print(f"[yellow]🧹 Archivo temporal eliminado: {f}[/yellow]", markup=SUPPORTS_COLOR)
-            except Exception:
-                pass
-    console.print("[bold green]✅ Sistema limpio y listo para un nuevo ciclo de desarrollo o pruebas.[/bold green]", markup=SUPPORTS_COLOR)
-
-@app.command()
-def logs(level: str = typer.Option(None, help="Filtra por nivel: DEBUG, INFO, WARNING, ERROR, CRITICAL"), search: str = typer.Option(None, help="Busca por palabra clave en los logs"), lines: int = typer.Option(40, help="Número de líneas a mostrar")):
-    """Muestra los logs del sistema de forma paginada y filtrada."""
-    log_path = 'logs/para.log'
-    try:
-        with open(log_path, 'r', encoding='utf-8') as f:
-            log_lines = f.readlines()
-        # Filtrado por nivel
-        if level:
-            log_lines = [l for l in log_lines if f'] {level.upper()} [' in l]
-        # Filtrado por palabra clave
-        if search:
-            log_lines = [l for l in log_lines if re.search(search, l, re.IGNORECASE)]
-        # Mostrar solo las últimas N líneas
-        log_lines = log_lines[-lines:]
-        if not log_lines:
-            console.print('[yellow]No hay logs para mostrar con los filtros dados.[/yellow]', markup=SUPPORTS_COLOR)
-            return
-        # Presentación bonita
-        log_text = ''.join(log_lines)
-        from rich.syntax import Syntax
-        syntax = Syntax(log_text, 'log', theme='ansi_dark', line_numbers=False)
-        console.print(Panel(syntax, title='PARA System Logs', expand=True), markup=SUPPORTS_COLOR)
-    except Exception as e:
-        from paralib.logger import logger
-        logger.error(f"Error mostrando logs: {e}", exc_info=True)
-        console.print(f"[red]Error mostrando logs: {e}[/red]", markup=SUPPORTS_COLOR)
-
-@app.command()
-def weights():
-    """Muestra todos los factores y sus pesos actuales."""
-    import json
-    from rich.table import Table
-    with open("para_factor_weights.json", "r", encoding="utf-8") as f:
-        weights = json.load(f)
-    table = Table(title="Matriz de Pesos PARA", show_header=True, header_style="bold magenta")
-    table.add_column("Factor", style="cyan")
-    table.add_column("Peso", style="bold yellow", justify="right")
-    for k, v in weights.items():
-        if not k.startswith("_"):
-            table.add_row(k, str(v))
-    console.print(table, markup=SUPPORTS_COLOR)
-
-@app.command()
-def set_weight(
-    factor: str = typer.Argument(..., help="Nombre del factor a modificar (ej: Projects.llm_prediction)"),
-    value: int = typer.Argument(..., help="Nuevo valor del peso (entero >= 0)")
-):
-    """Modifica el peso de un factor en la matriz de pesos."""
-    import json
-    default_weights = {
-        "Projects": {
-            "llm_prediction": 8,
-            "feedback_history": 15,
-            "title_similarity": 6,
-            "content_similarity": 4,
-            "has_deadline": 10,
-            "has_tasks": 8,
-            "has_okr_kpi": 7,
-            "is_active_project": 12,
-            "has_roles": 5,
-            "backlinks_from_active": 6,
-            "outlinks_to_actions": 4
-        },
-        "Areas": {
-            "llm_prediction": 8,
-            "feedback_history": 15,
-            "title_similarity": 7,
-            "content_similarity": 5,
-            "has_deadline": -5,
-            "has_tasks": 3,
-            "is_area_of_life": 12,
-            "has_review_date": 10,
-            "has_roles": 8,
-            "backlinks_from_projects": 5,
-            "outlinks_to_resources": 4
-        },
-        "Resources": {
-            "llm_prediction": 8,
-            "feedback_history": 15,
-            "title_similarity": 5,
-            "content_similarity": 7,
-            "has_deadline": -10,
-            "has_tasks": -5,
-            "is_topic_of_interest": 12,
-            "has_tags": 8,
-            "outlinks_to_external": 10,
-            "no_backlinks": 5,
-            "is_reference_material": 9
-        }
-    }
-    # Permitir notación Categoria.subfactor
-    if "." in factor:
-        category, subfactor = factor.split(".", 1)
-    else:
-        category, subfactor = factor, None
-    if not os.path.exists("para_factor_weights.json"):
-        with open("para_factor_weights.json", "w", encoding="utf-8") as f:
-            json.dump(default_weights, f, indent=2, ensure_ascii=False)
-        console.print("[yellow][WARN] El archivo de pesos no existía. Se ha creado con valores por defecto.[/yellow]", markup=SUPPORTS_COLOR)
-    with open("para_factor_weights.json", "r", encoding="utf-8") as f:
-        weights = json.load(f)
-    if category not in weights:
-        console.print(f"[red][ERROR] La categoría '{category}' no existe.[/red]", markup=SUPPORTS_COLOR)
-        raise typer.Exit(1)
-    if subfactor:
-        if subfactor not in weights[category]:
-            console.print(f"[red][ERROR] El subfactor '{subfactor}' no existe en '{category}'.[/red]", markup=SUPPORTS_COLOR)
-            raise typer.Exit(1)
-        weights[category][subfactor] = value
-        console.print(f"[green][OK] Peso de '{category}.{subfactor}' actualizado a {value}.[/green]", markup=SUPPORTS_COLOR)
-    else:
-        console.print(f"[red][ERROR] Debes especificar un subfactor (ej: Projects.llm_prediction).[/red]", markup=SUPPORTS_COLOR)
-        raise typer.Exit(1)
-    with open("para_factor_weights.json", "w", encoding="utf-8") as f:
-        json.dump(weights, f, indent=2, ensure_ascii=False)
-
-@app.command()
-def reset():
-    """Limpia la caché de features y restaura pesos/reglas a valores por defecto."""
-    import shutil
-    console.print("[bold red]⚠️  Esta acción restaurará la configuración y pesos a valores por defecto. Se recomienda tener un backup reciente.[/bold red]", markup=SUPPORTS_COLOR)
-    if os.path.exists('.para_cache_features.json'):
-        os.remove('.para_cache_features.json')
-    if os.path.exists('para_factor_weights.json'):
-        os.remove('para_factor_weights.json')
-    if os.path.exists('para_config.json'):
-        shutil.copy('para_config.default.json', 'para_config.json')
-    console.print("[OK] Caché y configuración restauradas a valores por defecto.", markup=SUPPORTS_COLOR)
-
-@app.command()
-def autoheal():
-    """Detecta y repara automáticamente problemas comunes del sistema PARA."""
-    import subprocess
-    from pathlib import Path
-    import shutil
-    import sys
-    import os
-    from paralib.logger import logger
-    print("[AUTOHEAL] Iniciando diagnóstico y reparación automática...")
-    logger.info("[AUTOHEAL] Iniciando diagnóstico y reparación automática...")
-
-    # 1. Verificar integridad de archivos clave
-    files_ok = True
-    required_files = ["requirements.txt", "para_config.json", "para_cli.py", "paralib/__init__.py"]
-    for f in required_files:
-        if not Path(f).exists():
-            msg = f"[AUTOHEAL] Archivo clave faltante: {f}"
+        print("[DOCTOR] Log de errores limpiado.")
+        logger.info("[DOCTOR] Log de errores limpiado.")
+    if only_tests:
+        print("[DOCTOR] Ejecutando solo tests unitarios...")
+        logger.info("[DOCTOR] Ejecutando solo tests unitarios...")
+    if not only_tests:
+        # Diagnóstico completo (antes: autoheal)
+        # 1. Verificar integridad de archivos clave
+        files_ok = True
+        required_files = ["requirements.txt", "para_config.json", "para_cli.py", "paralib/__init__.py"]
+        for f in required_files:
+            if not Path(f).exists():
+                msg = f"[DOCTOR] Archivo clave faltante: {f}"
+                print(msg)
+                logger.critical(msg)
+                files_ok = False
+        if not files_ok:
+            msg = "[DOCTOR] Faltan archivos clave. Intenta restaurar desde backup o clona de nuevo el repositorio."
             print(msg)
             logger.critical(msg)
-            files_ok = False
-    if not files_ok:
-        msg = "[AUTOHEAL] Faltan archivos clave. Intenta restaurar desde backup o clona de nuevo el repositorio."
-        print(msg)
-        logger.critical(msg)
-        return
-
-    # 2. Reparar base de datos corrupta
-    db_path = Path("para_chroma_db")
-    if db_path.exists() and db_path.stat().st_size < 1024:
-        msg = "[AUTOHEAL] Base de datos corrupta detectada. Eliminando..."
-        print(msg)
-        logger.warning(msg)
-        shutil.rmtree(db_path)
-        msg = "[AUTOHEAL] Base de datos eliminada. Se recreará en el próximo uso."
-        print(msg)
-        logger.info(msg)
-
-    # 3. Reparar errores de schema en ChromaDB
-    chroma_db_file = db_path / "chroma.sqlite3"
-    if chroma_db_file.exists():
-        with open(chroma_db_file, 'rb') as f:
-            content = f.read(100)
-            if b'sqlite' not in content:
-                msg = "[AUTOHEAL] Archivo de base de datos ChromaDB corrupto. Renombrando para recreación..."
-                print(msg)
-                logger.warning(msg)
-                shutil.move(str(chroma_db_file), str(chroma_db_file) + ".bak_autofix")
-                msg = f"[AUTOHEAL] Base renombrada a {chroma_db_file}.bak_autofix"
-                print(msg)
-                logger.info(msg)
-
-    # 4. Restaurar backup más reciente si existe, o crear uno si no hay
-    backups_dir = Path("backups")
-    backups = sorted(backups_dir.glob("*.zip"), reverse=True) if backups_dir.exists() else []
-    if not backups:
-        msg = "[AUTOHEAL] No se encontró backup. Creando backup automático..."
-        print(msg)
-        logger.warning(msg)
-        try:
-            from paralib.utils import auto_backup_if_needed
-            auto_backup_if_needed()
-            msg = "[AUTOHEAL] Backup automático creado."
+            return
+        # 2. Reparar base de datos corrupta
+        db_path = Path("para_chroma_db")
+        if db_path.exists() and db_path.stat().st_size < 1024:
+            msg = "[DOCTOR] Base de datos corrupta detectada. Eliminando..."
+            print(msg)
+            logger.warning(msg)
+            import shutil
+            shutil.rmtree(db_path)
+            msg = "[DOCTOR] Base de datos eliminada. Se recreará en el próximo uso."
             print(msg)
             logger.info(msg)
-        except Exception as e:
-            msg = f"[AUTOHEAL] No se pudo crear backup automático: {e}"
+        # 3. Reparar errores de schema en ChromaDB
+        chroma_db_file = db_path / "chroma.sqlite3"
+        if chroma_db_file.exists():
+            with open(chroma_db_file, 'rb') as f:
+                content = f.read(100)
+                if b'sqlite' not in content:
+                    msg = "[DOCTOR] Archivo de base de datos ChromaDB corrupto. Renombrando para recreación..."
+                    print(msg)
+                    logger.warning(msg)
+                    import shutil
+                    shutil.move(str(chroma_db_file), str(chroma_db_file) + ".bak_autofix")
+                    msg = f"[DOCTOR] Base renombrada a {chroma_db_file}.bak_autofix"
+                    print(msg)
+                    logger.info(msg)
+        # 4. Backup automático si no existe
+        backups_dir = Path("backups")
+        backups = sorted(backups_dir.glob("*.zip"), reverse=True) if backups_dir.exists() else []
+        if not backups:
+            msg = "[DOCTOR] No se encontró backup. Creando backup automático..."
             print(msg)
-            logger.critical(msg)
-    else:
-        msg = f"[AUTOHEAL] Backup más reciente encontrado: {backups[0]}"
-        print(msg)
-        logger.info(msg)
-        msg = "[AUTOHEAL] Puedes restaurar manualmente usando: python backup_manager.py --action restore --vault-path <ruta> --backup-file <archivo>"
-        print(msg)
-        logger.info(msg)
-
-    # 5. Limpiar logs antiguos
-    log_path = Path("logs/para.log")
-    if log_path.exists() and log_path.stat().st_size > 1024 * 1024:  # > 1MB
-        msg = "[AUTOHEAL] Log muy grande detectado. Limpiando..."
-        print(msg)
-        logger.warning(msg)
-        with open(log_path, "w") as f:
-            f.write("")
-        msg = "[AUTOHEAL] Log limpiado."
-        print(msg)
-        logger.info(msg)
-
-    # 6. Analizar y autocorregir errores recientes en logs
-    try:
-        from paralib.log_analyzer import analyze_and_fix_log
-        msg = "[AUTOHEAL] Analizando logs y aplicando fixes automáticos..."
-        print(msg)
-        logger.info(msg)
-        analyze_and_fix_log()
-    except Exception as e:
-        msg = f"[AUTOHEAL] No se pudo analizar el log automáticamente: {e}"
-        print(msg)
-        logger.error(msg)
-
-    # 7. Ejecutar tests unitarios y mostrar resultado
-    msg = "[AUTOHEAL] Ejecutando tests unitarios para QA..."
-    print(msg)
-    logger.info(msg)
+            logger.warning(msg)
+            try:
+                from paralib.utils import auto_backup_if_needed
+                auto_backup_if_needed()
+                msg = "[DOCTOR] Backup automático creado."
+                print(msg)
+                logger.info(msg)
+            except Exception as e:
+                msg = f"[DOCTOR] No se pudo crear backup automático: {e}"
+                print(msg)
+                logger.critical(msg)
+        else:
+            msg = f"[DOCTOR] Backup más reciente encontrado: {backups[0]}"
+            print(msg)
+            logger.info(msg)
+            msg = "[DOCTOR] Puedes restaurar manualmente usando: python backup_manager.py --action restore --vault-path <ruta> --backup-file <archivo>"
+            print(msg)
+            logger.info(msg)
+        # 5. Analizar y autocorregir errores recientes en logs
+        try:
+            from paralib.log_analyzer import analyze_and_fix_log
+            msg = "[DOCTOR] Analizando logs y aplicando fixes automáticos..."
+            print(msg)
+            logger.info(msg)
+            analyze_and_fix_log()
+        except Exception as e:
+            msg = f"[DOCTOR] No se pudo analizar el log automáticamente: {e}"
+            print(msg)
+            logger.error(msg)
+    # 6. Ejecutar tests unitarios
+    print("[DOCTOR] Ejecutando tests unitarios...")
+    logger.info("[DOCTOR] Ejecutando tests unitarios...")
     try:
         result = subprocess.run([sys.executable, '-m', 'pytest', 'paralib/tests/', '--maxfail=3', '--disable-warnings', '-v'],
                                env={**os.environ, 'PYTHONPATH': '.'},
@@ -532,21 +354,16 @@ def autoheal():
         print(result.stdout)
         logger.info(result.stdout)
         if result.returncode == 0:
-            msg = "[AUTOHEAL] Todos los tests pasaron correctamente."
-            print(msg)
-            logger.info(msg)
+            print("[DOCTOR] Todos los tests pasaron correctamente.")
+            logger.info("[DOCTOR] Todos los tests pasaron correctamente.")
         else:
-            msg = "[AUTOHEAL] Algunos tests fallaron. Revisa la salida anterior para detalles."
-            print(msg)
-            logger.warning(msg)
+            print("[DOCTOR] Algunos tests fallaron. Revisa la salida anterior para detalles.")
+            logger.warning("[DOCTOR] Algunos tests fallaron. Revisa la salida anterior para detalles.")
     except Exception as e:
-        msg = f"[AUTOHEAL] No se pudieron ejecutar los tests: {e}"
-        print(msg)
-        logger.error(msg)
-
-    msg = "[AUTOHEAL] Diagnóstico completado. El sistema está listo para usar."
-    print(msg)
-    logger.info(msg)
+        print(f"[DOCTOR] No se pudieron ejecutar los tests: {e}")
+        logger.error(f"[DOCTOR] No se pudieron ejecutar los tests: {e}")
+    print("[DOCTOR] Diagnóstico y QA completados.")
+    logger.info("[DOCTOR] Diagnóstico y QA completados.")
 
 @app.command("clean-manager")
 def clean_manager(
@@ -585,41 +402,6 @@ def vault(
         rprint(f"[bold green]Vault detectado:[/bold green] [cyan]{vault}[/cyan]")
     else:
         rprint("[red]No se pudo detectar ningún vault automáticamente.[/red]")
-
-@app.command()
-def qa():
-    """Ejecuta diagnóstico y QA automatizado (autoheal + tests)."""
-    import subprocess
-    import sys
-    from paralib.logger import logger
-    print("[QA] Ejecutando diagnóstico y QA completo...")
-    logger.info("[QA] Ejecutando diagnóstico y QA completo...")
-    # Llama a autoheal
-    try:
-        autoheal()
-    except Exception as e:
-        print(f"[QA] Error en autoheal: {e}")
-        logger.error(f"[QA] Error en autoheal: {e}")
-    # Ejecuta tests unitarios
-    print("[QA] Ejecutando tests unitarios...")
-    logger.info("[QA] Ejecutando tests unitarios...")
-    try:
-        result = subprocess.run([sys.executable, '-m', 'pytest', 'paralib/tests/', '--maxfail=3', '--disable-warnings', '-v'],
-                               env={**os.environ, 'PYTHONPATH': '.'},
-                               capture_output=True, text=True)
-        print(result.stdout)
-        logger.info(result.stdout)
-        if result.returncode == 0:
-            print("[QA] Todos los tests pasaron correctamente.")
-            logger.info("[QA] Todos los tests pasaron correctamente.")
-        else:
-            print("[QA] Algunos tests fallaron. Revisa la salida anterior para detalles.")
-            logger.warning("[QA] Algunos tests fallaron. Revisa la salida anterior para detalles.")
-    except Exception as e:
-        print(f"[QA] No se pudieron ejecutar los tests: {e}")
-        logger.error(f"[QA] No se pudieron ejecutar los tests: {e}")
-    print("[QA] Diagnóstico y QA completados.")
-    logger.info("[QA] Diagnóstico y QA completados.")
 
 if __name__ == "__main__":
     app() 
