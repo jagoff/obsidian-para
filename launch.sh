@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env zsh
 # set -e
 #
 # launch.sh
@@ -31,15 +31,15 @@
 #
 
 # Obtenemos el directorio donde se encuentra el script
-SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
+SCRIPT_DIR="$( cd "$( dirname "${0}" )" &> /dev/null && pwd )"
 VENV_DIR="$SCRIPT_DIR/venv"
 DEPS_MARKER="$VENV_DIR/.deps_installed"
 
 # 1. Verificar si el entorno virtual existe, si no, crearlo.
-if [ ! -d "$VENV_DIR" ]; then
+if [[ ! -d "$VENV_DIR" ]]; then
     echo "🐍 Creando entorno virtual en '$VENV_DIR'..."
     python3 -m venv "$VENV_DIR"
-    if [ $? -ne 0 ]; then
+    if [[ $? -ne 0 ]]; then
         echo "❌ Error: No se pudo crear el entorno virtual."
         exit 1
     fi
@@ -49,11 +49,11 @@ fi
 source "$VENV_DIR/bin/activate"
 
 # 3. Instalar/actualizar dependencias si es la primera vez o si requirements.txt cambió.
-if [ ! -f "$DEPS_MARKER" ] || [ "$SCRIPT_DIR/requirements.txt" -nt "$DEPS_MARKER" ]; then
+if [[ ! -f "$DEPS_MARKER" || "$SCRIPT_DIR/requirements.txt" -nt "$DEPS_MARKER" ]]; then
     echo "📦 Actualizando dependencias (esto podría tardar un momento)..."
     pip install --upgrade pip &> /dev/null
     pip install --no-cache-dir -r "$SCRIPT_DIR/requirements.txt" > /dev/null
-    if [ $? -ne 0 ]; then
+    if [[ $? -ne 0 ]]; then
         echo "❌ Error: No se pudieron instalar las dependencias."
         deactivate
         exit 1

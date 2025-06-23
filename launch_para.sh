@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env zsh
 
 # PARA System Launcher Panel
 
@@ -19,37 +19,37 @@ function show_menu() {
 
 while true; do
   show_menu
-  read -p "Selecciona una opción [0-7]: " opt
+  read "opt?Selecciona una opción [0-7]: "
   case $opt in
     1)
       echo "Lanzando dashboard web..."
       source venv/bin/activate && python para_dashboard.py
-      read -p "Presiona Enter para volver al panel..."
+      read -k1 "_?Presiona Enter para volver al panel..."
       ;;
     2)
       echo "Lanzando monitor en terminal..."
       source venv/bin/activate && python para_cli.py monitor
-      read -p "Presiona Enter para volver al panel..."
+      read -k1 "_?Presiona Enter para volver al panel..."
       ;;
     3)
       echo "Clasificación de notas (Inbox/Archive)..."
       source venv/bin/activate && python para_cli.py classify
-      read -p "Presiona Enter para volver al panel..."
+      read -k1 "_?Presiona Enter para volver al panel..."
       ;;
     4)
       echo "Refactorización de Archive..."
       source venv/bin/activate && python para_cli.py refactor
-      read -p "Presiona Enter para volver al panel..."
+      read -k1 "_?Presiona Enter para volver al panel..."
       ;;
     5)
       echo "Exportando dataset de fine-tuning..."
       source venv/bin/activate && python para_cli.py export-finetune-dataset
-      read -p "Presiona Enter para volver al panel..."
+      read -k1 "_?Presiona Enter para volver al panel..."
       ;;
     6)
       echo "Revisión/corrección de feedback..."
       source venv/bin/activate && python para_cli.py review-feedback
-      read -p "Presiona Enter para volver al panel..."
+      read -k1 "_?Presiona Enter para volver al panel..."
       ;;
     7)
       echo "Mostrando logs recientes..."
