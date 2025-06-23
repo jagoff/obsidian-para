@@ -6,6 +6,7 @@ import functools
 import typer
 import json
 import importlib.util
+from paralib.vault import find_vault
 
 def shorten_path(path, n=3):
     parts = os.path.normpath(str(path)).split(os.sep)
@@ -49,7 +50,7 @@ def check_recent_errors(console, supports_color):
 def auto_backup_if_needed(vault_path=None, reason="pre-action"):
     """
     Realiza un backup automático si está activado en la configuración.
-    Si vault_path es None, intenta cargarlo de la configuración.
+    Si vault_path es None, usa el Vault Manager (find_vault) para detectar el vault de forma robusta.
     Devuelve True si el backup fue exitoso o no era necesario, False si falló.
     """
     config_path = Path("para_config.json")
@@ -60,8 +61,20 @@ def auto_backup_if_needed(vault_path=None, reason="pre-action"):
     auto_backup = config.get("auto_backup", True)
     if not auto_backup:
         return True  # No se requiere backup
+    # Centralizar la detección del vault
     if not vault_path:
         vault_path = config.get("vault_path")
+        if not vault_path:
+            # Usar el Vault Manager para detección robusta
+            vault_path_obj = find_vault()
+            if not vault_path_obj:
+                print("[CRITICAL] No se pudo detectar la ruta del vault para el backup automático (Vault Manager).")
+                return False
+            vault_path = str(vault_path_obj)
+            # Opcional: guardar en config para futuras ejecuciones
+            config["vault_path"] = vault_path
+            with open(config_path, "w", encoding="utf-8") as f:
+                json.dump(config, f, indent=4, ensure_ascii=False)
     if not vault_path:
         print("[CRITICAL] No se pudo determinar la ruta del vault para el backup automático.")
         return False
@@ -71,6 +84,7 @@ def auto_backup_if_needed(vault_path=None, reason="pre-action"):
     if not backup_manager_path.exists():
         print("[CRITICAL] No se encontró backup_manager.py para realizar el backup.")
         return False
+    import importlib.util
     spec = importlib.util.spec_from_file_location("backup_manager", str(backup_manager_path))
     backup_manager = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(backup_manager)
