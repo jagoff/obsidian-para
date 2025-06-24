@@ -12,6 +12,8 @@ import numpy as np
 from datetime import datetime, timedelta
 from typing import Dict, List, Any
 import json
+import logging
+from paralib.logger import logger
 
 from paralib.learning_system import PARA_Learning_System
 from paralib.db import ChromaPARADatabase
@@ -19,167 +21,171 @@ from paralib.classification_log import get_feedback_notes
 
 def create_learning_dashboard(vault_path: str):
     """Crea el dashboard de aprendizaje principal."""
-    st.set_page_config(
-        page_title="PARA Learning Dashboard",
-        page_icon="🧠",
-        layout="wide"
-    )
-    
-    st.title("🧠 Sistema de Aprendizaje Autónomo PARA")
-    st.markdown("### Dashboard de Progreso y Mejora Continua")
-    
-    # Inicializar sistema de aprendizaje
-    db_path = f"{vault_path}/.para_db/chroma"
-    db = ChromaPARADatabase(db_path=db_path)
-    learning_system = PARA_Learning_System(db, vault_path)
-    
-    # Sidebar para controles
-    st.sidebar.header("🎛️ Controles")
-    
-    # Selector de período
-    period_options = {
-        "Últimos 7 días": 7,
-        "Últimos 30 días": 30,
-        "Últimos 90 días": 90,
-        "Todo el historial": 365
-    }
-    
-    selected_period = st.sidebar.selectbox(
-        "Período de análisis:",
-        list(period_options.keys()),
-        index=1
-    )
-    
-    days = period_options[selected_period]
-    
-    # Obtener datos de progreso
-    progress_data = learning_system.get_learning_progress(days)
-    
-    if 'error' in progress_data:
-        st.error(progress_data['error'])
-        return
-    
-    # Crear snapshot actual
-    current_snapshot = learning_system.create_learning_snapshot()
-    
-    # Layout principal
-    col1, col2, col3, col4 = st.columns(4)
-    
-    with col1:
-        display_accuracy_card(current_snapshot['metrics'])
-    
-    with col2:
-        display_learning_velocity_card(current_snapshot['metrics'])
-    
-    with col3:
-        display_confidence_card(current_snapshot['metrics'])
-    
-    with col4:
-        display_improvement_card(current_snapshot['metrics'])
-    
-    # --- GRAFICA DE EVOLUCION CLI ---
-    st.markdown("---")
-    st.subheader("🚀 Evolución CLI: Aprendizaje y Avance Profesional")
-    cli_evolution = learning_system.get_cli_evolution_score_trend(days)
-    if 'error' in cli_evolution:
-        st.warning(cli_evolution['error'])
-    else:
-        trend = cli_evolution['trend']
-        if not trend:
-            st.info("No hay datos suficientes para mostrar la evolución de la CLI.")
+    try:
+        st.set_page_config(
+            page_title="PARA Learning Dashboard",
+            page_icon="🧠",
+            layout="wide"
+        )
+        
+        st.title("🧠 Sistema de Aprendizaje Autónomo PARA")
+        st.markdown("### Dashboard de Progreso y Mejora Continua")
+        
+        # Inicializar sistema de aprendizaje
+        db_path = f"{vault_path}/.para_db/chroma"
+        db = ChromaPARADatabase(db_path=db_path)
+        learning_system = PARA_Learning_System(db, vault_path)
+        
+        # Sidebar para controles
+        st.sidebar.header("🎛️ Controles")
+        
+        # Selector de período
+        period_options = {
+            "Últimos 7 días": 7,
+            "Últimos 30 días": 30,
+            "Últimos 90 días": 90,
+            "Todo el historial": 365
+        }
+        
+        selected_period = st.sidebar.selectbox(
+            "Período de análisis:",
+            list(period_options.keys()),
+            index=1
+        )
+        
+        days = period_options[selected_period]
+        
+        # Obtener datos de progreso
+        progress_data = learning_system.get_learning_progress(days)
+        
+        if 'error' in progress_data:
+            st.error(progress_data['error'])
+            return
+        
+        # Crear snapshot actual
+        current_snapshot = learning_system.create_learning_snapshot()
+        
+        # Layout principal
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            display_accuracy_card(current_snapshot['metrics'])
+        
+        with col2:
+            display_learning_velocity_card(current_snapshot['metrics'])
+        
+        with col3:
+            display_confidence_card(current_snapshot['metrics'])
+        
+        with col4:
+            display_improvement_card(current_snapshot['metrics'])
+        
+        # --- GRAFICA DE EVOLUCION CLI ---
+        st.markdown("---")
+        st.subheader("🚀 Evolución CLI: Aprendizaje y Avance Profesional")
+        cli_evolution = learning_system.get_cli_evolution_score_trend(days)
+        if 'error' in cli_evolution:
+            st.warning(cli_evolution['error'])
         else:
-            df_cli = pd.DataFrame(trend)
-            fig_cli = px.line(
-                df_cli,
-                x='timestamp',
-                y='cli_evolution_score',
-                title='Evolución CLI (Score 0-100)',
-                markers=True,
-                custom_data=['accuracy', 'improvement', 'velocity', 'satisfaction', 'adaptability']
-            )
-            fig_cli.update_traces(
-                hovertemplate='<b>Fecha:</b> %{x}<br>' +
-                              '<b>Score CLI:</b> %{y:.1f}<br>' +
-                              '<b>Precisión:</b> %{customdata[0]:.1f}%<br>' +
-                              '<b>Mejora:</b> %{customdata[1]:.2f}<br>' +
-                              '<b>Velocidad:</b> %{customdata[2]:.2f}<br>' +
-                              '<b>Satisfacción:</b> %{customdata[3]:.2f}<br>' +
-                              '<b>Adaptabilidad:</b> %{customdata[4]:.2f}<br>'
-            )
-            fig_cli.update_layout(
-                xaxis_title='Fecha',
-                yaxis_title='Evolución CLI Score (0-100)',
-                height=400,
-                template='plotly_dark',
-                showlegend=False
-            )
-            st.plotly_chart(fig_cli, use_container_width=True)
-    
-    # Gráficos principales
-    st.markdown("---")
-    st.subheader("📈 Tendencias de Aprendizaje")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        create_accuracy_trend_chart(progress_data)
-    
-    with col2:
-        create_confidence_trend_chart(progress_data)
-    
-    # Gráficos adicionales
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        create_learning_velocity_chart(progress_data)
-    
-    with col2:
-        create_improvement_trend_chart(progress_data)
-    
-    # Análisis detallado
-    st.markdown("---")
-    st.subheader("🔍 Análisis Detallado")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        display_category_performance(current_snapshot['category_performance'])
-    
-    with col2:
-        display_model_performance(current_snapshot['model_performance'])
-    
-    # Insights y sugerencias
-    st.markdown("---")
-    st.subheader("💡 Insights de Aprendizaje")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        display_learning_insights(current_snapshot['learning_insights'])
-    
-    with col2:
-        display_improvement_suggestions(current_snapshot['improvement_suggestions'])
-    
-    # Métricas avanzadas
-    st.markdown("---")
-    st.subheader("📊 Métricas Avanzadas")
-    
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        display_semantic_coherence_card(current_snapshot['metrics'])
-    
-    with col2:
-        display_category_balance_card(current_snapshot['metrics'])
-    
-    with col3:
-        display_user_satisfaction_card(current_snapshot['metrics'])
-    
-    # Resumen de progreso
-    st.markdown("---")
-    st.subheader("🎯 Resumen de Progreso")
-    
-    display_progress_summary(progress_data)
+            trend = cli_evolution['trend']
+            if not trend:
+                st.info("No hay datos suficientes para mostrar la evolución de la CLI.")
+            else:
+                df_cli = pd.DataFrame(trend)
+                fig_cli = px.line(
+                    df_cli,
+                    x='timestamp',
+                    y='cli_evolution_score',
+                    title='Evolución CLI (Score 0-100)',
+                    markers=True,
+                    custom_data=['accuracy', 'improvement', 'velocity', 'satisfaction', 'adaptability']
+                )
+                fig_cli.update_traces(
+                    hovertemplate='<b>Fecha:</b> %{x}<br>' +
+                                  '<b>Score CLI:</b> %{y:.1f}<br>' +
+                                  '<b>Precisión:</b> %{customdata[0]:.1f}%<br>' +
+                                  '<b>Mejora:</b> %{customdata[1]:.2f}<br>' +
+                                  '<b>Velocidad:</b> %{customdata[2]:.2f}<br>' +
+                                  '<b>Satisfacción:</b> %{customdata[3]:.2f}<br>' +
+                                  '<b>Adaptabilidad:</b> %{customdata[4]:.2f}<br>'
+                )
+                fig_cli.update_layout(
+                    xaxis_title='Fecha',
+                    yaxis_title='Evolución CLI Score (0-100)',
+                    height=400,
+                    template='plotly_dark',
+                    showlegend=False
+                )
+                st.plotly_chart(fig_cli, use_container_width=True)
+        
+        # Gráficos principales
+        st.markdown("---")
+        st.subheader("📈 Tendencias de Aprendizaje")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            create_accuracy_trend_chart(progress_data)
+        
+        with col2:
+            create_confidence_trend_chart(progress_data)
+        
+        # Gráficos adicionales
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            create_learning_velocity_chart(progress_data)
+        
+        with col2:
+            create_improvement_trend_chart(progress_data)
+        
+        # Análisis detallado
+        st.markdown("---")
+        st.subheader("🔍 Análisis Detallado")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            display_category_performance(current_snapshot['category_performance'])
+        
+        with col2:
+            display_model_performance(current_snapshot['model_performance'])
+        
+        # Insights y sugerencias
+        st.markdown("---")
+        st.subheader("💡 Insights de Aprendizaje")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            display_learning_insights(current_snapshot['learning_insights'])
+        
+        with col2:
+            display_improvement_suggestions(current_snapshot['improvement_suggestions'])
+        
+        # Métricas avanzadas
+        st.markdown("---")
+        st.subheader("📊 Métricas Avanzadas")
+        
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            display_semantic_coherence_card(current_snapshot['metrics'])
+        
+        with col2:
+            display_category_balance_card(current_snapshot['metrics'])
+        
+        with col3:
+            display_user_satisfaction_card(current_snapshot['metrics'])
+        
+        # Resumen de progreso
+        st.markdown("---")
+        st.subheader("🎯 Resumen de Progreso")
+        
+        display_progress_summary(progress_data)
+    except Exception as e:
+        logger.error(f"Error en learning_dashboard: {e}", exc_info=True)
+        st.error(f"Error crítico en el dashboard de aprendizaje: {e}")
 
 def display_accuracy_card(metrics: Dict[str, Any]):
     """Muestra tarjeta de precisión."""

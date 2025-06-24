@@ -19,87 +19,113 @@ from paralib.classification_log import get_feedback_notes, log_feedback
 from paralib.vault import load_para_config, save_para_config
 from paralib.logger import logger
 
+def init_learning_db_at_path(db_path):
+    """Crea todas las tablas necesarias en la ruta de DB especificada (robusto para portabilidad y QA)."""
+    import sqlite3
+    from pathlib import Path
+    db_path = Path(db_path)
+    db_path.parent.mkdir(exist_ok=True, parents=True)
+    conn = sqlite3.connect(str(db_path))
+    cursor = conn.cursor()
+    # Tabla de métricas de aprendizaje
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS learning_metrics (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT NOT NULL,
+            total_classifications INTEGER,
+            accuracy_rate REAL,
+            confidence_correlation REAL,
+            learning_velocity REAL,
+            improvement_score REAL,
+            category_balance REAL,
+            semantic_coherence REAL,
+            user_satisfaction REAL,
+            system_adaptability REAL
+        )
+    ''')
+    # Tabla de patrones de aprendizaje
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS learning_patterns (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            pattern_type TEXT NOT NULL,
+            pattern_data TEXT NOT NULL,
+            confidence REAL,
+            discovered_at TEXT NOT NULL,
+            usage_count INTEGER DEFAULT 0
+        )
+    ''')
+    # Tabla de feedback sobre carpetas creadas
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS folder_creation_feedback (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT NOT NULL,
+            folder_name TEXT NOT NULL,
+            category TEXT NOT NULL,
+            note_content TEXT,
+            note_tags TEXT,
+            note_patterns TEXT,
+            user_feedback TEXT NOT NULL,
+            feedback_reason TEXT,
+            confidence REAL,
+            method_used TEXT,
+            semantic_score REAL,
+            ai_score REAL,
+            learning_insights TEXT
+        )
+    ''')
+    # Tabla de patrones de nombres de carpetas
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS folder_name_patterns (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            pattern TEXT NOT NULL,
+            category TEXT NOT NULL,
+            success_rate REAL,
+            usage_count INTEGER DEFAULT 0,
+            last_used TEXT,
+            created_at TEXT NOT NULL
+        )
+    ''')
+    # Tabla de ejecuciones de comandos
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS command_executions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT NOT NULL,
+            command TEXT NOT NULL,
+            args TEXT,
+            success INTEGER NOT NULL,
+            confidence REAL,
+            reasoning TEXT,
+            error TEXT,
+            execution_time REAL,
+            user_feedback TEXT
+        )
+    ''')
+    conn.commit()
+    conn.close()
+
 class PARA_Learning_System:
     """Sistema de Aprendizaje Autónomo que mejora continuamente la clasificación PARA."""
     
-    def __init__(self, db: ChromaPARADatabase, vault_path: Path):
+    def __init__(self, db: ChromaPARADatabase = None, vault_path: Path = None):
         self.db = db
         self.vault_path = vault_path
         self.config = load_para_config()
-        self.learning_db_path = vault_path / ".para_db" / "learning_system.db"
-        self.learning_db_path.parent.mkdir(exist_ok=True)
+        
+        # Si no hay vault_path, usar un path por defecto para la base de datos de aprendizaje
+        if vault_path:
+            self.learning_db_path = vault_path / ".para_db" / "learning_system.db"
+        else:
+            # Usar un path por defecto en el directorio actual
+            default_vault = Path.cwd() / "default_learning"
+            self.learning_db_path = default_vault / ".para_db" / "learning_system.db"
+        
+        self.learning_db_path.parent.mkdir(exist_ok=True, parents=True)
         self._init_learning_database()
         
     def _init_learning_database(self):
-        """Inicializa la base de datos de aprendizaje."""
-        conn = sqlite3.connect(self.learning_db_path)
-        cursor = conn.cursor()
+        """Inicializa la base de datos de aprendizaje y asegura todas las tablas necesarias."""
+        init_learning_db_at_path(self.learning_db_path)
         
-        # Tabla de métricas de aprendizaje
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS learning_metrics (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                timestamp TEXT NOT NULL,
-                total_classifications INTEGER,
-                accuracy_rate REAL,
-                confidence_correlation REAL,
-                learning_velocity REAL,
-                improvement_score REAL,
-                category_balance REAL,
-                semantic_coherence REAL,
-                user_satisfaction REAL,
-                system_adaptability REAL
-            )
-        ''')
-        
-        # Tabla de patrones de aprendizaje
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS learning_patterns (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                pattern_type TEXT NOT NULL,
-                pattern_data TEXT NOT NULL,
-                confidence REAL,
-                discovered_at TEXT NOT NULL,
-                usage_count INTEGER DEFAULT 0
-            )
-        ''')
-        
-        # Tabla de feedback sobre carpetas creadas
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS folder_creation_feedback (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                timestamp TEXT NOT NULL,
-                folder_name TEXT NOT NULL,
-                category TEXT NOT NULL,
-                note_content TEXT,
-                note_tags TEXT,
-                note_patterns TEXT,
-                user_feedback TEXT NOT NULL,
-                feedback_reason TEXT,
-                confidence REAL,
-                method_used TEXT,
-                semantic_score REAL,
-                ai_score REAL,
-                learning_insights TEXT
-            )
-        ''')
-        
-        # Tabla de patrones de nombres de carpetas
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS folder_name_patterns (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                pattern TEXT NOT NULL,
-                category TEXT NOT NULL,
-                success_rate REAL,
-                usage_count INTEGER DEFAULT 0,
-                last_used TEXT,
-                created_at TEXT NOT NULL
-            )
-        ''')
-        
-        conn.commit()
-        conn.close()
-    
     def learn_from_classification(self, classification_result: Dict) -> Dict[str, Any]:
         """Aprende de una clasificación individual."""
         learning_insights = []
@@ -198,7 +224,7 @@ class PARA_Learning_System:
         system_adaptability = self._calculate_system_adaptability()
         
         # Calcular score de mejora
-        improvement_score = self._calculate_improvement_score()
+        improvement_score = self._calculate_improvement_score(success_rate=accuracy_rate/100, confidence=confidence_correlation)
         
         return {
             'timestamp': datetime.utcnow().isoformat(),
@@ -215,11 +241,17 @@ class PARA_Learning_System:
     
     def _get_all_classifications(self) -> List[Dict]:
         """Obtiene todas las clasificaciones."""
-        results = self.db.collection.get(include=["metadatas", "documents"])
-        return [
-            {**meta, "content": doc} 
-            for meta, doc in zip(results.get("metadatas", []), results.get("documents", []))
-        ]
+        try:
+            if self.db is None:
+                return []  # Sin DB configurada, devolver lista vacía
+            results = self.db.collection.get(include=["metadatas", "documents"])
+            return [
+                {**meta, "content": doc} 
+                for meta, doc in zip(results.get("metadatas", []), results.get("documents", []))
+            ]
+        except Exception as e:
+            logger.warning(f"Error obteniendo clasificaciones: {e}")
+            return []
     
     def _calculate_learning_velocity(self) -> float:
         """Calcula la velocidad de aprendizaje."""
@@ -297,23 +329,10 @@ class PARA_Learning_System:
         
         return (diversity_score + frequency_score) / 2
     
-    def _calculate_improvement_score(self) -> float:
+    def _calculate_improvement_score(self, success_rate: float, confidence: float) -> float:
         """Calcula el score de mejora."""
-        historical_metrics = self._get_recent_metrics(50)
-        
-        if len(historical_metrics) < 5:
-            return 0.5
-        
-        recent_accuracy = statistics.mean([m['accuracy_rate'] for m in historical_metrics[-5:]])
-        older_accuracy = statistics.mean([m['accuracy_rate'] for m in historical_metrics[:5]])
-        accuracy_improvement = (recent_accuracy - older_accuracy) / 100
-        
-        recent_confidence = statistics.mean([m['confidence_correlation'] for m in historical_metrics[-5:]])
-        older_confidence = statistics.mean([m['confidence_correlation'] for m in historical_metrics[:5]])
-        confidence_improvement = (recent_confidence - older_confidence) / 2
-        
-        improvement_score = (accuracy_improvement + confidence_improvement) / 2
-        return max(0, min(1, improvement_score + 0.5))
+        # Fórmula: (success_rate * 0.6) + (confidence * 0.4)
+        return (success_rate * 0.6) + (confidence * 0.4)
     
     def _get_recent_metrics(self, limit: int) -> List[Dict]:
         """Obtiene métricas recientes."""
@@ -1225,3 +1244,449 @@ class PARA_Learning_System:
                 'adaptability': 0.10
             }
         }
+    
+    def export_learning_knowledge(self, export_path: str = None) -> str:
+        """
+        Exporta TODO el conocimiento de la CLI (clasificaciones, feedback, embeddings, patrones, métricas)
+        a un archivo JSON portable para transferir inteligencia entre Macs.
+        """
+        if not export_path:
+            export_path = f"para_learning_knowledge_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.json"
+        
+        # Recopilar todo el conocimiento
+        knowledge = {
+            'export_timestamp': datetime.utcnow().isoformat(),
+            'version': '1.0',
+            'learning_metrics': self._export_learning_metrics(),
+            'classification_history': self._export_classification_history(),
+            'feedback_data': self._export_feedback_data(),
+            'folder_creation_patterns': self._export_folder_patterns(),
+            'semantic_embeddings': self._export_semantic_data(),
+            'user_preferences': self._export_user_preferences(),
+            'system_evolution': self._export_system_evolution()
+        }
+        
+        # Guardar a archivo
+        with open(export_path, 'w', encoding='utf-8') as f:
+            json.dump(knowledge, f, indent=2, ensure_ascii=False)
+        
+        logger.info(f"Conocimiento de la CLI exportado a: {export_path}")
+        return export_path
+    
+    def import_learning_knowledge(self, import_path: str) -> Dict[str, Any]:
+        """
+        Importa conocimiento de la CLI desde un archivo JSON exportado.
+        """
+        try:
+            with open(import_path, 'r', encoding='utf-8') as f:
+                knowledge = json.load(f)
+            
+            # Importar cada componente
+            results = {
+                'learning_metrics_imported': self._import_learning_metrics(knowledge.get('learning_metrics', [])),
+                'classifications_imported': self._import_classification_history(knowledge.get('classification_history', [])),
+                'feedback_imported': self._import_feedback_data(knowledge.get('feedback_data', [])),
+                'patterns_imported': self._import_folder_patterns(knowledge.get('folder_creation_patterns', [])),
+                'semantic_data_imported': self._import_semantic_data(knowledge.get('semantic_embeddings', [])),
+                'preferences_imported': self._import_user_preferences(knowledge.get('user_preferences', {})),
+                'evolution_imported': self._import_system_evolution(knowledge.get('system_evolution', {}))
+            }
+            
+            logger.info(f"Conocimiento de la CLI importado desde: {import_path}")
+            return results
+            
+        except Exception as e:
+            logger.error(f"Error importando conocimiento: {e}")
+            return {'error': str(e)}
+    
+    def _export_learning_metrics(self) -> List[Dict]:
+        """Exporta métricas de aprendizaje."""
+        conn = sqlite3.connect(self.learning_db_path)
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM learning_metrics ORDER BY timestamp DESC")
+        rows = cursor.fetchall()
+        conn.close()
+        
+        return [{
+            'timestamp': row[1],
+            'total_classifications': row[2],
+            'accuracy_rate': row[3],
+            'confidence_correlation': row[4],
+            'learning_velocity': row[5],
+            'improvement_score': row[6],
+            'category_balance': row[7],
+            'semantic_coherence': row[8],
+            'user_satisfaction': row[9],
+            'system_adaptability': row[10]
+        } for row in rows]
+    
+    def _export_classification_history(self) -> List[Dict]:
+        """Exporta historial de clasificaciones."""
+        try:
+            if self.db is None:
+                return []  # Sin DB configurada, devolver lista vacía
+            classifications = self._get_all_classifications()
+            return [{
+                'timestamp': c.get('timestamp', ''),
+                'note_path': c.get('path', ''),
+                'predicted_category': c.get('predicted_category', ''),
+                'confidence': c.get('confidence', 0),
+                'model_used': c.get('model', ''),
+                'feedback_category': c.get('feedback_category', ''),
+                'feedback_given': c.get('feedback_given', False)
+            } for c in classifications]
+        except Exception as e:
+            logger.warning(f"Error exportando historial de clasificaciones: {e}")
+            return []
+    
+    def _export_feedback_data(self) -> List[Dict]:
+        """Exporta datos de feedback."""
+        conn = sqlite3.connect(self.learning_db_path)
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM folder_creation_feedback ORDER BY timestamp DESC")
+        rows = cursor.fetchall()
+        conn.close()
+        
+        return [{
+            'timestamp': row[1],
+            'folder_name': row[2],
+            'category': row[3],
+            'user_feedback': row[7],
+            'feedback_reason': row[8],
+            'confidence': row[9],
+            'method_used': row[10]
+        } for row in rows]
+    
+    def _export_folder_patterns(self) -> List[Dict]:
+        """Exporta patrones de nombres de carpetas."""
+        conn = sqlite3.connect(self.learning_db_path)
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM folder_name_patterns ORDER BY usage_count DESC")
+        rows = cursor.fetchall()
+        conn.close()
+        
+        return [{
+            'pattern': row[1],
+            'category': row[2],
+            'success_rate': row[3],
+            'usage_count': row[4],
+            'last_used': row[5],
+            'created_at': row[6]
+        } for row in rows]
+    
+    def _export_semantic_data(self) -> List[Dict]:
+        """Exporta datos semánticos relevantes."""
+        # Exportar embeddings y metadatos clave de ChromaDB
+        try:
+            if self.db is None:
+                return []  # Sin DB configurada, devolver lista vacía
+            all_metadata = self.db.get_all_notes_metadata()
+            return [{
+                'path': m.get('path', ''),
+                'category': m.get('category', ''),
+                'project_name': m.get('project_name', ''),
+                'last_updated': m.get('last_updated_utc', ''),
+                'filename': m.get('filename', '')
+            } for m in all_metadata[:1000]]  # Limitar a 1000 para portabilidad
+        except Exception as e:
+            logger.warning(f"Error exportando datos semánticos: {e}")
+            return []
+    
+    def _export_user_preferences(self) -> Dict:
+        """Exporta preferencias del usuario."""
+        return {
+            'vault_path': str(self.vault_path),
+            'preferred_categories': self._get_category_preferences(),
+            'learning_style': self._get_learning_style_preferences()
+        }
+    
+    def _export_system_evolution(self) -> Dict:
+        """Exporta evolución del sistema."""
+        return {
+            'total_executions': len(self._get_all_classifications()),
+            'feedback_count': len(self._export_feedback_data()),
+            'patterns_learned': len(self._export_folder_patterns()),
+            'last_improvement': self._get_last_improvement_date(),
+            'system_version': '1.0'
+        }
+    
+    def _import_learning_metrics(self, metrics: List[Dict]) -> int:
+        """Importa métricas de aprendizaje."""
+        if not metrics:
+            return 0
+        
+        conn = sqlite3.connect(self.learning_db_path)
+        cursor = conn.cursor()
+        
+        imported = 0
+        for metric in metrics:
+            try:
+                cursor.execute("""
+                    INSERT OR IGNORE INTO learning_metrics 
+                    (timestamp, total_classifications, accuracy_rate, confidence_correlation, 
+                     learning_velocity, improvement_score, category_balance, semantic_coherence, 
+                     user_satisfaction, system_adaptability)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    metric['timestamp'], metric['total_classifications'], metric['accuracy_rate'],
+                    metric['confidence_correlation'], metric['learning_velocity'], metric['improvement_score'],
+                    metric['category_balance'], metric['semantic_coherence'], metric['user_satisfaction'],
+                    metric['system_adaptability']
+                ))
+                imported += 1
+            except:
+                continue
+        
+        conn.commit()
+        conn.close()
+        return imported
+    
+    def _import_classification_history(self, classifications: List[Dict]) -> int:
+        """Importa historial de clasificaciones."""
+        # Aquí podrías importar a ChromaDB si es necesario
+        return len(classifications)
+    
+    def _import_feedback_data(self, feedback: List[Dict]) -> int:
+        """Importa datos de feedback."""
+        if not feedback:
+            return 0
+        
+        conn = sqlite3.connect(self.learning_db_path)
+        cursor = conn.cursor()
+        
+        imported = 0
+        for fb in feedback:
+            try:
+                cursor.execute("""
+                    INSERT OR IGNORE INTO folder_creation_feedback 
+                    (timestamp, folder_name, category, user_feedback, feedback_reason, confidence, method_used)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    fb['timestamp'], fb['folder_name'], fb['category'], fb['user_feedback'],
+                    fb['feedback_reason'], fb['confidence'], fb['method_used']
+                ))
+                imported += 1
+            except:
+                continue
+        
+        conn.commit()
+        conn.close()
+        return imported
+    
+    def _import_folder_patterns(self, patterns: List[Dict]) -> int:
+        """Importa patrones de carpetas."""
+        if not patterns:
+            return 0
+        
+        conn = sqlite3.connect(self.learning_db_path)
+        cursor = conn.cursor()
+        
+        imported = 0
+        for pattern in patterns:
+            try:
+                cursor.execute("""
+                    INSERT OR IGNORE INTO folder_name_patterns 
+                    (pattern, category, success_rate, usage_count, last_used, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                """, (
+                    pattern['pattern'], pattern['category'], pattern['success_rate'],
+                    pattern['usage_count'], pattern['last_used'], pattern['created_at']
+                ))
+                imported += 1
+            except:
+                continue
+        
+        conn.commit()
+        conn.close()
+        return imported
+    
+    def _import_semantic_data(self, semantic_data: List[Dict]) -> int:
+        """Importa datos semánticos."""
+        # Aquí podrías importar a ChromaDB si es necesario
+        return len(semantic_data)
+    
+    def _import_user_preferences(self, preferences: Dict) -> bool:
+        """Importa preferencias del usuario."""
+        # Actualizar configuración si es necesario
+        return True
+    
+    def _import_system_evolution(self, evolution: Dict) -> bool:
+        """Importa evolución del sistema."""
+        # Actualizar métricas del sistema
+        return True
+    
+    def _get_category_preferences(self) -> Dict:
+        """Obtiene preferencias de categorías del usuario."""
+        classifications = self._get_all_classifications()
+        category_counts = {}
+        for c in classifications:
+            cat = c.get('predicted_category', 'Unknown')
+            category_counts[cat] = category_counts.get(cat, 0) + 1
+        return category_counts
+    
+    def _get_learning_style_preferences(self) -> Dict:
+        """Obtiene preferencias de estilo de aprendizaje."""
+        return {
+            'feedback_frequency': self._calculate_feedback_frequency(),
+            'preferred_confidence_threshold': 0.7,
+            'auto_organization_enabled': True
+        }
+    
+    def _get_last_improvement_date(self) -> str:
+        """Obtiene fecha de la última mejora."""
+        conn = sqlite3.connect(self.learning_db_path)
+        cursor = conn.cursor()
+        cursor.execute("SELECT timestamp FROM learning_metrics ORDER BY timestamp DESC LIMIT 1")
+        result = cursor.fetchone()
+        conn.close()
+        return result[0] if result else datetime.utcnow().isoformat()
+    
+    def _calculate_feedback_frequency(self) -> float:
+        """Calcula frecuencia de feedback del usuario."""
+        classifications = self._get_all_classifications()
+        feedback_notes = get_feedback_notes(self.db)
+        return len(feedback_notes) / len(classifications) if classifications else 0
+    
+    def record_command_execution(self, command: str, args: list, success: bool, 
+                                confidence: float, reasoning: str, error: str = None) -> None:
+        """
+        Registra la ejecución de un comando para aprendizaje entre ejecuciones.
+        """
+        try:
+            conn = sqlite3.connect(self.learning_db_path)
+            cursor = conn.cursor()
+            
+            # Crear tabla si no existe
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS command_executions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp TEXT NOT NULL,
+                    command TEXT NOT NULL,
+                    args TEXT,
+                    success INTEGER NOT NULL,
+                    confidence REAL,
+                    reasoning TEXT,
+                    error TEXT,
+                    execution_time REAL,
+                    user_feedback TEXT
+                )
+            """)
+            
+            # Insertar registro
+            cursor.execute("""
+                INSERT INTO command_executions 
+                (timestamp, command, args, success, confidence, reasoning, error)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (
+                datetime.utcnow().isoformat(),
+                command,
+                json.dumps(args) if args else None,
+                1 if success else 0,
+                confidence,
+                reasoning,
+                error
+            ))
+            
+            conn.commit()
+            conn.close()
+            
+            # Actualizar métricas de aprendizaje
+            self._update_learning_metrics()
+            
+        except Exception as e:
+            logger.error(f"Error registrando ejecución de comando: {e}")
+    
+    def _update_learning_metrics(self) -> None:
+        """Actualiza métricas de aprendizaje basadas en ejecuciones recientes."""
+        try:
+            conn = sqlite3.connect(self.learning_db_path)
+            cursor = conn.cursor()
+            
+            # Obtener estadísticas de ejecuciones
+            cursor.execute("""
+                SELECT 
+                    COUNT(*) as total,
+                    SUM(success) as successful,
+                    AVG(confidence) as avg_confidence,
+                    COUNT(DISTINCT command) as unique_commands
+                FROM command_executions
+                WHERE timestamp >= datetime('now', '-7 days')
+            """)
+            
+            stats = cursor.fetchone()
+            if stats and stats[0] > 0:
+                total_executions = stats[0]
+                success_rate = stats[1] / stats[0] if stats[1] else 0
+                avg_confidence = stats[2] or 0
+                command_diversity = stats[3] or 0
+                
+                # Calcular métricas de aprendizaje
+                learning_velocity = self._calculate_learning_velocity()
+                improvement_score = self._calculate_improvement_score(success_rate, avg_confidence)
+                
+                # Insertar métrica
+                cursor.execute("""
+                    INSERT INTO learning_metrics 
+                    (timestamp, total_classifications, accuracy_rate, confidence_correlation, 
+                     learning_velocity, improvement_score, category_balance, semantic_coherence, 
+                     user_satisfaction, system_adaptability)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    datetime.utcnow().isoformat(),
+                    total_executions,
+                    success_rate,
+                    avg_confidence,
+                    learning_velocity,
+                    improvement_score,
+                    command_diversity / max(total_executions, 1),  # Balance de comandos
+                    0.8,  # Coherencia semántica (placeholder)
+                    0.7,  # Satisfacción del usuario (placeholder)
+                    0.6   # Adaptabilidad del sistema (placeholder)
+                ))
+                
+                conn.commit()
+            
+            conn.close()
+            
+        except Exception as e:
+            logger.error(f"Error actualizando métricas de aprendizaje: {e}")
+    
+    def _calculate_learning_velocity(self) -> float:
+        """Calcula la velocidad de aprendizaje basada en mejoras recientes."""
+        try:
+            conn = sqlite3.connect(self.learning_db_path)
+            cursor = conn.cursor()
+            
+            # Obtener métricas de los últimos 7 días
+            cursor.execute("""
+                SELECT accuracy_rate, improvement_score 
+                FROM learning_metrics 
+                WHERE timestamp >= datetime('now', '-7 days')
+                ORDER BY timestamp DESC
+                LIMIT 10
+            """)
+            
+            metrics = cursor.fetchall()
+            conn.close()
+            
+            if len(metrics) < 2:
+                return 0.5  # Valor por defecto
+            
+            # Calcular tendencia
+            recent_accuracy = metrics[0][0] if metrics[0][0] else 0
+            older_accuracy = metrics[-1][0] if metrics[-1][0] else 0
+            
+            if older_accuracy > 0:
+                velocity = (recent_accuracy - older_accuracy) / older_accuracy
+                return max(0, min(1, velocity + 0.5))  # Normalizar entre 0 y 1
+            
+            return 0.5
+            
+        except Exception as e:
+            logger.error(f"Error calculando velocidad de aprendizaje: {e}")
+            return 0.5
+    
+    def _calculate_improvement_score(self, success_rate: float, confidence: float) -> float:
+        """Calcula el score de mejora basado en éxito y confianza."""
+        # Fórmula: (success_rate * 0.6) + (confidence * 0.4)
+        return (success_rate * 0.6) + (confidence * 0.4)

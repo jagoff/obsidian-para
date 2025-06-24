@@ -18,6 +18,8 @@ import sys
 import os
 import re
 import subprocess
+import logging
+from paralib.logger import logger
 
 # Agregar el directorio raíz al path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -51,187 +53,195 @@ class PARABackendDashboard:
     
     def run(self):
         """Ejecuta el dashboard principal."""
-        st.title("🚀 PARA Backend Dashboard")
-        st.markdown("**Sistema de gestión y monitoreo integral del PARA System**")
-        # Sidebar para navegación
-        st.sidebar.title("📋 Navegación")
-        page = st.sidebar.selectbox(
-            "Seleccionar sección:",
-            [
-                "🏠 Dashboard Principal",
-                "🚨 Alertas del Sistema",
-                "📊 Logs & Errores",
-                "🧠 Sistema de Aprendizaje",
-                "🔍 ChromaDB Analytics",
-                "💊 Doctor System",
-                "📈 Métricas de Usuario",
-                "⚙️ Configuración del Sistema"
-            ]
-        )
-        # Navegación por páginas
-        if page == "🏠 Dashboard Principal":
-            self.show_main_dashboard()
-        elif page == "🚨 Alertas del Sistema":
-            self.show_alerts_dashboard()
-        elif page == "📊 Logs & Errores":
-            self.show_logs_dashboard()
-        elif page == "🧠 Sistema de Aprendizaje":
-            self.show_learning_dashboard()
-        elif page == "🔍 ChromaDB Analytics":
-            self.show_chromadb_dashboard()
-        elif page == "💊 Doctor System":
-            self.show_doctor_dashboard()
-        elif page == "📈 Métricas de Usuario":
-            self.show_user_metrics()
-        elif page == "⚙️ Configuración del Sistema":
-            self.show_system_config()
+        try:
+            st.title("🚀 PARA Backend Dashboard")
+            st.markdown("**Sistema de gestión y monitoreo integral del PARA System**")
+            # Sidebar para navegación
+            st.sidebar.title("📋 Navegación")
+            page = st.sidebar.selectbox(
+                "Seleccionar sección:",
+                [
+                    "🏠 Dashboard Principal",
+                    "🚨 Alertas del Sistema",
+                    "📊 Logs & Errores",
+                    "🧠 Sistema de Aprendizaje",
+                    "🔍 ChromaDB Analytics",
+                    "💊 Doctor System",
+                    "📈 Métricas de Usuario",
+                    "⚙️ Configuración del Sistema"
+                ]
+            )
+            # Navegación por páginas
+            if page == "🏠 Dashboard Principal":
+                self.show_main_dashboard()
+            elif page == "🚨 Alertas del Sistema":
+                self.show_alerts_dashboard()
+            elif page == "📊 Logs & Errores":
+                self.show_logs_dashboard()
+            elif page == "🧠 Sistema de Aprendizaje":
+                self.show_learning_dashboard()
+            elif page == "�� ChromaDB Analytics":
+                self.show_chromadb_dashboard()
+            elif page == "💊 Doctor System":
+                self.show_doctor_dashboard()
+            elif page == "📈 Métricas de Usuario":
+                self.show_user_metrics()
+            elif page == "⚙️ Configuración del Sistema":
+                self.show_system_config()
+        except Exception as e:
+            logger.error(f"Error en dashboard principal: {e}", exc_info=True)
+            st.error(f"Error crítico en el dashboard: {e}")
     
     def show_main_dashboard(self):
         """Dashboard principal con resumen general."""
-        st.header("🏠 Dashboard Principal")
-        # --- Resumen de alertas ---
-        service_status = self.check_services_status()
-        priority_order = [
-            'ChromaDB', 'Vault Manager', 'AI Engine', 'Organizer', 'Plugins',
-            'Learning System', 'Log Manager', 'Feedback Manager', 'Clean Manager', 'UI/Monitor'
-        ]
-        errors = []
-        warnings = []
-        oks = []
-        for key in priority_order:
-            if key in service_status:
-                info = service_status[key]
-                if info['status'] == 'error':
-                    errors.append((key, info))
-                elif info['status'] == 'warning':
-                    warnings.append((key, info))
-                else:
-                    oks.append((key, info))
-        st.markdown(f"### 🚨 Resumen de Alertas: [Errores: {len(errors)} | Advertencias: {len(warnings)} | OK: {len(oks)}]")
-        
-        # Métricas principales en cards
-        col1, col2, col3, col4 = st.columns(4)
-        
-        # Logs metrics
-        log_metrics = self.log_manager.get_metrics()
-        with col1:
-            st.metric(
-                label="📊 Total Logs",
-                value=log_metrics['total_logs'],
-                delta=log_metrics['auto_resolved']
-            )
-        
-        with col2:
-            st.metric(
-                label="✅ Auto-Resueltos",
-                value=log_metrics['auto_resolved'],
-                delta=f"{log_metrics['auto_resolved']/max(log_metrics['total_logs'], 1)*100:.1f}%"
-            )
-        
-        with col3:
-            st.metric(
-                label="⏳ Pendientes",
-                value=log_metrics['pending'],
-                delta=f"{log_metrics['pending']/max(log_metrics['total_logs'], 1)*100:.1f}%"
-            )
-        
-        with col4:
-            st.metric(
-                label="⏱️ Tiempo Promedio Resolución",
-                value=f"{log_metrics['avg_resolution_time']:.1f} min"
-            )
-        
-        # Learning metrics
-        learning_metrics = self.learning_system.get_metrics()
-        col1, col2, col3, col4 = st.columns(4)
-        
-        with col1:
-            st.metric(
-                label="🧠 Total Feedback",
-                value=learning_metrics.get('total_feedback', 0)
-            )
-        
-        with col2:
-            st.metric(
-                label="📈 Precisión Actual",
-                value=f"{learning_metrics.get('current_accuracy', 0)*100:.1f}%"
-            )
-        
-        with col3:
-            st.metric(
-                label="🔄 Modelos Entrenados",
-                value=learning_metrics.get('models_trained', 0)
-            )
-        
-        with col4:
-            st.metric(
-                label="📊 Notas Clasificadas",
-                value=learning_metrics.get('notes_classified', 0)
-            )
-        
-        # Gráficos principales
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.subheader("📈 Actividad de Logs (Últimas 24h)")
-            recent_activity = self.log_manager.get_recent_activity(24)
-            
-            fig = go.Figure(data=[
-                go.Bar(
-                    x=['Total', 'Auto-Resueltos', 'Manual', 'Pendientes'],
-                    y=[
-                        recent_activity['total'],
-                        recent_activity['auto_resolved'],
-                        recent_activity['manually_resolved'],
-                        recent_activity['pending']
-                    ],
-                    marker_color=['#1f77b4', '#2ca02c', '#ff7f0e', '#d62728']
-                )
-            ])
-            fig.update_layout(height=300, showlegend=False)
-            st.plotly_chart(fig, use_container_width=True)
-        
-        with col2:
-            st.subheader("🧠 Progreso de Aprendizaje")
-            # Gráfico de progreso de aprendizaje
-            try:
-                progress = self.learning_system.get_learning_progress(days=30)
-                if progress and 'accuracy_trend' in progress:
-                    # Crear DataFrame para el gráfico
-                    df = pd.DataFrame({
-                        'timestamp': progress.get('timestamps', []),
-                        'accuracy': progress.get('accuracy_trend', [])
-                    })
-                    
-                    if not df.empty:
-                        fig = px.line(
-                            df, 
-                            x='timestamp', 
-                            y='accuracy',
-                            title="Evolución de la Precisión"
-                        )
-                        fig.update_layout(height=300)
-                        st.plotly_chart(fig, use_container_width=True)
+        try:
+            st.header("🏠 Dashboard Principal")
+            # --- Resumen de alertas ---
+            service_status = self.check_services_status()
+            priority_order = [
+                'ChromaDB', 'Vault Manager', 'AI Engine', 'Organizer', 'Plugins',
+                'Learning System', 'Log Manager', 'Feedback Manager', 'Clean Manager', 'UI/Monitor'
+            ]
+            errors = []
+            warnings = []
+            oks = []
+            for key in priority_order:
+                if key in service_status:
+                    info = service_status[key]
+                    if info['status'] == 'error':
+                        errors.append((key, info))
+                    elif info['status'] == 'warning':
+                        warnings.append((key, info))
                     else:
-                        st.info("No hay datos de precisión disponibles")
+                        oks.append((key, info))
+            st.markdown(f"### 🚨 Resumen de Alertas: [Errores: {len(errors)} | Advertencias: {len(warnings)} | OK: {len(oks)}]")
+            
+            # Métricas principales en cards
+            col1, col2, col3, col4 = st.columns(4)
+            
+            # Logs metrics
+            log_metrics = self.log_manager.get_metrics()
+            with col1:
+                st.metric(
+                    label="📊 Total Logs",
+                    value=log_metrics['total_logs'],
+                    delta=log_metrics['auto_resolved']
+                )
+            
+            with col2:
+                st.metric(
+                    label="✅ Auto-Resueltos",
+                    value=log_metrics['auto_resolved'],
+                    delta=f"{log_metrics['auto_resolved']/max(log_metrics['total_logs'], 1)*100:.1f}%"
+                )
+            
+            with col3:
+                st.metric(
+                    label="⏳ Pendientes",
+                    value=log_metrics['pending'],
+                    delta=f"{log_metrics['pending']/max(log_metrics['total_logs'], 1)*100:.1f}%"
+                )
+            
+            with col4:
+                st.metric(
+                    label="⏱️ Tiempo Promedio Resolución",
+                    value=f"{log_metrics['avg_resolution_time']:.1f} min"
+                )
+            
+            # Learning metrics
+            learning_metrics = self.learning_system.get_metrics()
+            col1, col2, col3, col4 = st.columns(4)
+            
+            with col1:
+                st.metric(
+                    label="🧠 Total Feedback",
+                    value=learning_metrics.get('total_feedback', 0)
+                )
+            
+            with col2:
+                st.metric(
+                    label="📈 Precisión Actual",
+                    value=f"{learning_metrics.get('current_accuracy', 0)*100:.1f}%"
+                )
+            
+            with col3:
+                st.metric(
+                    label="🔄 Modelos Entrenados",
+                    value=learning_metrics.get('models_trained', 0)
+                )
+            
+            with col4:
+                st.metric(
+                    label="📊 Notas Clasificadas",
+                    value=learning_metrics.get('notes_classified', 0)
+                )
+            
+            # Gráficos principales
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.subheader("📈 Actividad de Logs (Últimas 24h)")
+                recent_activity = self.log_manager.get_recent_activity(24)
+                
+                fig = go.Figure(data=[
+                    go.Bar(
+                        x=['Total', 'Auto-Resueltos', 'Manual', 'Pendientes'],
+                        y=[
+                            recent_activity['total'],
+                            recent_activity['auto_resolved'],
+                            recent_activity['manually_resolved'],
+                            recent_activity['pending']
+                        ],
+                        marker_color=['#1f77b4', '#2ca02c', '#ff7f0e', '#d62728']
+                    )
+                ])
+                fig.update_layout(height=300, showlegend=False)
+                st.plotly_chart(fig, use_container_width=True)
+            
+            with col2:
+                st.subheader("🧠 Progreso de Aprendizaje")
+                # Gráfico de progreso de aprendizaje
+                try:
+                    progress = self.learning_system.get_learning_progress(days=30)
+                    if progress and 'accuracy_trend' in progress:
+                        # Crear DataFrame para el gráfico
+                        df = pd.DataFrame({
+                            'timestamp': progress.get('timestamps', []),
+                            'accuracy': progress.get('accuracy_trend', [])
+                        })
+                        
+                        if not df.empty:
+                            fig = px.line(
+                                df, 
+                                x='timestamp', 
+                                y='accuracy',
+                                title="Evolución de la Precisión"
+                            )
+                            fig.update_layout(height=300)
+                            st.plotly_chart(fig, use_container_width=True)
+                        else:
+                            st.info("No hay datos de precisión disponibles")
+                    else:
+                        st.info("No hay datos de progreso de aprendizaje disponibles")
+                except Exception as e:
+                    st.warning(f"No se pudieron cargar los datos de progreso: {e}")
+            
+            # Alertas y estado del sistema
+            st.subheader("🚨 Alertas del Sistema")
+            
+            # Verificar estado de servicios
+            services_status = self.check_services_status()
+            
+            for service, status in services_status.items():
+                if status['status'] == 'error':
+                    st.error(f"❌ {service}: {status['message']}")
+                elif status['status'] == 'warning':
+                    st.warning(f"⚠️ {service}: {status['message']}")
                 else:
-                    st.info("No hay datos de progreso de aprendizaje disponibles")
-            except Exception as e:
-                st.warning(f"No se pudieron cargar los datos de progreso: {e}")
-        
-        # Alertas y estado del sistema
-        st.subheader("🚨 Alertas del Sistema")
-        
-        # Verificar estado de servicios
-        services_status = self.check_services_status()
-        
-        for service, status in services_status.items():
-            if status['status'] == 'error':
-                st.error(f"❌ {service}: {status['message']}")
-            elif status['status'] == 'warning':
-                st.warning(f"⚠️ {service}: {status['message']}")
-            else:
-                st.success(f"✅ {service}: {status['message']}")
+                    st.success(f"✅ {service}: {status['message']}")
+        except Exception as e:
+            logger.error(f"Error en show_main_dashboard: {e}", exc_info=True)
+            st.error(f"Error en Dashboard Principal: {e}")
     
     def show_alerts_dashboard(self):
         """Página dedicada a mostrar todas las alertas del sistema ordenadas por importancia."""
@@ -360,254 +370,254 @@ class PARABackendDashboard:
     
     def show_learning_dashboard(self):
         """Dashboard del sistema de aprendizaje con métricas completas."""
-        st.header("🧠 Sistema de Aprendizaje Autónomo")
-        
-        # Obtener todas las métricas disponibles
         try:
+            st.header("🧠 Sistema de Aprendizaje Autónomo")
+            
+            # Obtener todas las métricas disponibles
             metrics = self.learning_system.get_metrics()
-        except Exception as e:
-            st.error(f"Error obteniendo métricas de aprendizaje: {e}")
-            return
-        
-        # Métricas principales en cards
-        st.subheader("📊 Métricas Principales")
-        col1, col2, col3, col4 = st.columns(4)
-        
-        with col1:
-            st.metric(
-                label="🎯 Precisión",
-                value=f"{metrics.get('accuracy_rate', 0):.1f}%",
-                delta=f"{metrics.get('overall_improvement', {}).get('accuracy', 0):.1f}%"
-            )
-        
-        with col2:
-            st.metric(
-                label="🚀 Velocidad de Aprendizaje",
-                value=f"{metrics.get('learning_velocity', 0):.2f}",
-                delta="Mejora" if metrics.get('learning_velocity', 0) > 0.5 else "Necesita datos"
-            )
-        
-        with col3:
-            st.metric(
-                label="📈 Score de Mejora",
-                value=f"{metrics.get('improvement_score', 0):.2f}",
-                delta="Positivo" if metrics.get('improvement_score', 0) > 0.5 else "Necesita mejora"
-            )
-        
-        with col4:
-            st.metric(
-                label="🎲 Correlación Confianza",
-                value=f"{metrics.get('confidence_correlation', 0):.3f}",
-                delta="Alta" if metrics.get('confidence_correlation', 0) > 0.7 else "Baja"
-            )
-        
-        # Segunda fila de métricas
-        col1, col2, col3, col4 = st.columns(4)
-        
-        with col1:
-            st.metric(
-                label="📚 Total Clasificaciones",
-                value=metrics.get('total_classifications', 0)
-            )
-        
-        with col2:
-            st.metric(
-                label="📁 Carpetas Creadas",
-                value=metrics.get('total_folders_created', 0)
-            )
-        
-        with col3:
-            st.metric(
-                label="✅ Tasa Aprobación Carpetas",
-                value=f"{metrics.get('folder_approval_rate', 0):.1f}%"
-            )
-        
-        with col4:
-            st.metric(
-                label="🧠 Adaptabilidad Sistema",
-                value=f"{metrics.get('system_adaptability', 0):.2f}"
-            )
-        
-        # Métricas de calidad
-        st.subheader("🔍 Métricas de Calidad")
-        col1, col2, col3, col4 = st.columns(4)
-        
-        with col1:
-            st.metric(
-                label="⚖️ Balance Categorías",
-                value=f"{metrics.get('category_balance', 0):.2f}"
-            )
-        
-        with col2:
-            st.metric(
-                label="🔗 Coherencia Semántica",
-                value=f"{metrics.get('semantic_coherence', 0):.2f}"
-            )
-        
-        with col3:
-            st.metric(
-                label="😊 Satisfacción Usuario",
-                value=f"{metrics.get('user_satisfaction', 0):.2f}"
-            )
-        
-        with col4:
-            st.metric(
-                label="📊 Snapshots Históricos",
-                value=metrics.get('total_snapshots', 0)
-            )
-        
-        # Análisis de rendimiento por categoría
-        st.subheader("📂 Rendimiento por Categoría")
-        category_performance = metrics.get('category_performance', {})
-        
-        if category_performance:
-            cat_data = []
-            for category, perf in category_performance.items():
-                cat_data.append({
-                    'Categoría': category,
-                    'Total Notas': perf.get('total_notes', 0),
-                    'Correcciones': perf.get('corrections', 0),
-                    'Precisión': f"{perf.get('accuracy', 0):.1f}%",
-                    'Tasa Corrección': f"{perf.get('correction_rate', 0):.1f}%"
-                })
             
-            if cat_data:
-                df_cat = pd.DataFrame(cat_data)
-                st.dataframe(df_cat, use_container_width=True)
-        else:
-            st.info("No hay datos de rendimiento por categoría disponibles")
-        
-        # Análisis de modelos de IA
-        st.subheader("🤖 Rendimiento de Modelos de IA")
-        model_performance = metrics.get('model_performance', {})
-        
-        if model_performance:
-            model_data = []
-            for model, accuracy in model_performance.items():
-                model_data.append({
-                    'Modelo': model,
-                    'Precisión': f"{accuracy:.1f}%"
-                })
-            
-            if model_data:
-                df_model = pd.DataFrame(model_data)
-                st.dataframe(df_model, use_container_width=True)
-        else:
-            st.info("No hay datos de rendimiento de modelos disponibles")
-        
-        # Análisis de creación de carpetas
-        st.subheader("📁 Análisis de Creación de Carpetas")
-        folder_method_performance = metrics.get('folder_method_performance', {})
-        
-        if folder_method_performance:
-            method_data = []
-            for method, perf in folder_method_performance.items():
-                method_data.append({
-                    'Método': method,
-                    'Total': perf.get('total', 0),
-                    'Aprobadas': perf.get('approved', 0),
-                    'Tasa Aprobación': f"{perf.get('approval_rate', 0):.1f}%",
-                    'Confianza Promedio': f"{perf.get('avg_confidence', 0):.3f}"
-                })
-            
-            if method_data:
-                df_method = pd.DataFrame(method_data)
-                st.dataframe(df_method, use_container_width=True)
-        else:
-            st.info("No hay datos de métodos de creación de carpetas disponibles")
-        
-        # Insights de aprendizaje
-        st.subheader("💡 Insights de Aprendizaje")
-        learning_insights = metrics.get('learning_insights', [])
-        folder_insights = metrics.get('folder_learning_insights', [])
-        
-        all_insights = learning_insights + folder_insights
-        
-        if all_insights:
-            for insight in all_insights[:10]:  # Mostrar máximo 10 insights
-                st.info(f"💡 {insight}")
-        else:
-            st.info("No hay insights de aprendizaje disponibles")
-        
-        # Sugerencias de mejora
-        st.subheader("🔧 Sugerencias de Mejora")
-        suggestions = metrics.get('improvement_suggestions', [])
-        
-        if suggestions:
-            for suggestion in suggestions:
-                priority_color = {
-                    'high': '🔴',
-                    'medium': '🟡',
-                    'low': '🟢'
-                }.get(suggestion.get('priority', 'medium'), '🟡')
-                
-                st.warning(f"{priority_color} **{suggestion.get('type', 'Mejora')}**: {suggestion.get('description', '')}")
-                st.write(f"*Acción sugerida: {suggestion.get('action', 'N/A')}*")
-        else:
-            st.success("✅ No hay sugerencias de mejora - el sistema está funcionando bien")
-        
-        # Acciones de aprendizaje
-        st.subheader("🔄 Acciones de Aprendizaje")
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            if st.button("📊 Generar Reporte Completo"):
-                with st.spinner("Generando reporte..."):
-                    try:
-                        snapshot = self.learning_system.create_learning_snapshot()
-                        st.json(snapshot)
-                    except Exception as e:
-                        st.error(f"Error generando reporte: {e}")
-        
-        with col2:
-            if st.button("📈 Ver Progreso Detallado"):
-                with st.spinner("Cargando progreso..."):
-                    try:
-                        progress = self.learning_system.get_learning_progress(days=30)
-                        st.json(progress)
-                    except Exception as e:
-                        st.error(f"Error cargando progreso: {e}")
-        
-        # Información temporal
-        st.subheader("⏰ Información Temporal")
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.write(f"**Última actualización:** {metrics.get('last_updated', 'N/A')}")
-        
-        with col2:
-            st.write(f"**Período de análisis:** {metrics.get('progress_period_days', 30)} días")
-        
-        # Mejora general
-        overall_improvement = metrics.get('overall_improvement', {})
-        if overall_improvement:
-            st.subheader("📈 Mejora General del Sistema")
-            col1, col2, col3 = st.columns(3)
+            # Métricas principales en cards
+            st.subheader("📊 Métricas Principales")
+            col1, col2, col3, col4 = st.columns(4)
             
             with col1:
                 st.metric(
-                    label="Mejora Precisión",
-                    value=f"{overall_improvement.get('accuracy', 0):.1f}%"
+                    label="🎯 Precisión",
+                    value=f"{metrics.get('accuracy_rate', 0):.1f}%",
+                    delta=f"{metrics.get('overall_improvement', {}).get('accuracy', 0):.1f}%"
                 )
             
             with col2:
                 st.metric(
-                    label="Mejora Confianza",
-                    value=f"{overall_improvement.get('confidence', 0):.1f}%"
+                    label="🚀 Velocidad de Aprendizaje",
+                    value=f"{metrics.get('learning_velocity', 0):.2f}",
+                    delta="Mejora" if metrics.get('learning_velocity', 0) > 0.5 else "Necesita datos"
                 )
             
             with col3:
                 st.metric(
-                    label="Mejora General",
-                    value=f"{overall_improvement.get('overall', 0):.1f}%"
+                    label="📈 Score de Mejora",
+                    value=f"{metrics.get('improvement_score', 0):.2f}",
+                    delta="Positivo" if metrics.get('improvement_score', 0) > 0.5 else "Necesita mejora"
                 )
+            
+            with col4:
+                st.metric(
+                    label="🎲 Correlación Confianza",
+                    value=f"{metrics.get('confidence_correlation', 0):.3f}",
+                    delta="Alta" if metrics.get('confidence_correlation', 0) > 0.7 else "Baja"
+                )
+            
+            # Segunda fila de métricas
+            col1, col2, col3, col4 = st.columns(4)
+            
+            with col1:
+                st.metric(
+                    label="📚 Total Clasificaciones",
+                    value=metrics.get('total_classifications', 0)
+                )
+            
+            with col2:
+                st.metric(
+                    label="📁 Carpetas Creadas",
+                    value=metrics.get('total_folders_created', 0)
+                )
+            
+            with col3:
+                st.metric(
+                    label="✅ Tasa Aprobación Carpetas",
+                    value=f"{metrics.get('folder_approval_rate', 0):.1f}%"
+                )
+            
+            with col4:
+                st.metric(
+                    label="🧠 Adaptabilidad Sistema",
+                    value=f"{metrics.get('system_adaptability', 0):.2f}"
+                )
+            
+            # Métricas de calidad
+            st.subheader("🔍 Métricas de Calidad")
+            col1, col2, col3, col4 = st.columns(4)
+            
+            with col1:
+                st.metric(
+                    label="⚖️ Balance Categorías",
+                    value=f"{metrics.get('category_balance', 0):.2f}"
+                )
+            
+            with col2:
+                st.metric(
+                    label="🔗 Coherencia Semántica",
+                    value=f"{metrics.get('semantic_coherence', 0):.2f}"
+                )
+            
+            with col3:
+                st.metric(
+                    label="😊 Satisfacción Usuario",
+                    value=f"{metrics.get('user_satisfaction', 0):.2f}"
+                )
+            
+            with col4:
+                st.metric(
+                    label="📊 Snapshots Históricos",
+                    value=metrics.get('total_snapshots', 0)
+                )
+            
+            # Análisis de rendimiento por categoría
+            st.subheader("📂 Rendimiento por Categoría")
+            category_performance = metrics.get('category_performance', {})
+            
+            if category_performance:
+                cat_data = []
+                for category, perf in category_performance.items():
+                    cat_data.append({
+                        'Categoría': category,
+                        'Total Notas': perf.get('total_notes', 0),
+                        'Correcciones': perf.get('corrections', 0),
+                        'Precisión': f"{perf.get('accuracy', 0):.1f}%",
+                        'Tasa Corrección': f"{perf.get('correction_rate', 0):.1f}%"
+                    })
+                
+                if cat_data:
+                    df_cat = pd.DataFrame(cat_data)
+                    st.dataframe(df_cat, use_container_width=True)
+            else:
+                st.info("No hay datos de rendimiento por categoría disponibles")
+            
+            # Análisis de modelos de IA
+            st.subheader("🤖 Rendimiento de Modelos de IA")
+            model_performance = metrics.get('model_performance', {})
+            
+            if model_performance:
+                model_data = []
+                for model, accuracy in model_performance.items():
+                    model_data.append({
+                        'Modelo': model,
+                        'Precisión': f"{accuracy:.1f}%"
+                    })
+                
+                if model_data:
+                    df_model = pd.DataFrame(model_data)
+                    st.dataframe(df_model, use_container_width=True)
+            else:
+                st.info("No hay datos de rendimiento de modelos disponibles")
+            
+            # Análisis de creación de carpetas
+            st.subheader("📁 Análisis de Creación de Carpetas")
+            folder_method_performance = metrics.get('folder_method_performance', {})
+            
+            if folder_method_performance:
+                method_data = []
+                for method, perf in folder_method_performance.items():
+                    method_data.append({
+                        'Método': method,
+                        'Total': perf.get('total', 0),
+                        'Aprobadas': perf.get('approved', 0),
+                        'Tasa Aprobación': f"{perf.get('approval_rate', 0):.1f}%",
+                        'Confianza Promedio': f"{perf.get('avg_confidence', 0):.3f}"
+                    })
+                
+                if method_data:
+                    df_method = pd.DataFrame(method_data)
+                    st.dataframe(df_method, use_container_width=True)
+            else:
+                st.info("No hay datos de métodos de creación de carpetas disponibles")
+            
+            # Insights de aprendizaje
+            st.subheader("💡 Insights de Aprendizaje")
+            learning_insights = metrics.get('learning_insights', [])
+            folder_insights = metrics.get('folder_learning_insights', [])
+            
+            all_insights = learning_insights + folder_insights
+            
+            if all_insights:
+                for insight in all_insights[:10]:  # Mostrar máximo 10 insights
+                    st.info(f"💡 {insight}")
+            else:
+                st.info("No hay insights de aprendizaje disponibles")
+            
+            # Sugerencias de mejora
+            st.subheader("🔧 Sugerencias de Mejora")
+            suggestions = metrics.get('improvement_suggestions', [])
+            
+            if suggestions:
+                for suggestion in suggestions:
+                    priority_color = {
+                        'high': '🔴',
+                        'medium': '🟡',
+                        'low': '🟢'
+                    }.get(suggestion.get('priority', 'medium'), '🟡')
+                    
+                    st.warning(f"{priority_color} **{suggestion.get('type', 'Mejora')}**: {suggestion.get('description', '')}")
+                    st.write(f"*Acción sugerida: {suggestion.get('action', 'N/A')}*")
+            else:
+                st.success("✅ No hay sugerencias de mejora - el sistema está funcionando bien")
+            
+            # Acciones de aprendizaje
+            st.subheader("🔄 Acciones de Aprendizaje")
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                if st.button("📊 Generar Reporte Completo"):
+                    with st.spinner("Generando reporte..."):
+                        try:
+                            snapshot = self.learning_system.create_learning_snapshot()
+                            st.json(snapshot)
+                        except Exception as e:
+                            st.error(f"Error generando reporte: {e}")
+            
+            with col2:
+                if st.button("📈 Ver Progreso Detallado"):
+                    with st.spinner("Cargando progreso..."):
+                        try:
+                            progress = self.learning_system.get_learning_progress(days=30)
+                            st.json(progress)
+                        except Exception as e:
+                            st.error(f"Error cargando progreso: {e}")
+            
+            # Información temporal
+            st.subheader("⏰ Información Temporal")
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.write(f"**Última actualización:** {metrics.get('last_updated', 'N/A')}")
+            
+            with col2:
+                st.write(f"**Período de análisis:** {metrics.get('progress_period_days', 30)} días")
+            
+            # Mejora general
+            overall_improvement = metrics.get('overall_improvement', {})
+            if overall_improvement:
+                st.subheader("📈 Mejora General del Sistema")
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    st.metric(
+                        label="Mejora Precisión",
+                        value=f"{overall_improvement.get('accuracy', 0):.1f}%"
+                    )
+                
+                with col2:
+                    st.metric(
+                        label="Mejora Confianza",
+                        value=f"{overall_improvement.get('confidence', 0):.1f}%"
+                    )
+                
+                with col3:
+                    st.metric(
+                        label="Mejora General",
+                        value=f"{overall_improvement.get('overall', 0):.1f}%"
+                    )
+        except Exception as e:
+            logger.error(f"Error en show_learning_dashboard: {e}", exc_info=True)
+            st.error(f"Error en Sistema de Aprendizaje: {e}")
     
     def show_chromadb_dashboard(self):
         """Dashboard de ChromaDB con análisis completo."""
-        st.header("🔍 ChromaDB Analytics Avanzado")
-        
         try:
+            st.header("🔍 ChromaDB Analytics Avanzado")
+            
             # Estadísticas básicas de ChromaDB
             stats = self.chroma_db.get_database_stats()
             
@@ -866,8 +876,8 @@ class PARABackendDashboard:
                 st.write(f"**{indicator}:** {status}")
                 
         except Exception as e:
-            st.error(f"Error al conectar con ChromaDB: {e}")
-            st.info("Verificar que ChromaDB esté ejecutándose y la configuración sea correcta")
+            logger.error(f"Error en show_chromadb_dashboard: {e}", exc_info=True)
+            st.error(f"Error en ChromaDB Analytics: {e}")
     
     def show_doctor_dashboard(self):
         """Dashboard del Doctor System."""

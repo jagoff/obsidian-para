@@ -8,6 +8,9 @@ import sys
 import argparse
 from pathlib import Path
 from typing import Dict, Any
+import os
+import sqlite3
+import re
 
 from paralib.config import load_config
 from paralib.logger import logger
@@ -19,6 +22,8 @@ from paralib.vault_cli import select_vault_interactive
 from rich.console import Console
 from rich.prompt import Confirm
 from rich.panel import Panel
+from rich.table import Table
+from rich.progress import Progress, SpinnerColumn, TextColumn
 
 console = Console()
 
@@ -44,7 +49,11 @@ class PARACLI:
             'plugins': self.cmd_plugins,
             'help': self.cmd_help,
             'version': self.cmd_version,
-            'reclassify-all': self.cmd_reclassify_all
+            'reclassify-all': self.cmd_reclassify_all,
+            'export-knowledge': self.cmd_export_knowledge,
+            'import-knowledge': self.cmd_import_knowledge,
+            'learning-status': self.cmd_learning_status,
+            'logs-errors': self.cmd_logs_errors
         }
     
     def get_all_available_commands(self) -> list:
@@ -122,7 +131,7 @@ class PARACLI:
         return command in plugin_commands
     
     def _execute_traditional_command(self, command: str, args: list):
-        """Ejecuta un comando tradicional."""
+        """Ejecuta un comando tradicional con manejo robusto de errores."""
         try:
             # Los comandos core tienen prioridad
             if command in self.core_commands:
@@ -135,9 +144,39 @@ class PARACLI:
                 plugin_command.function(*args)
                 return
             
+            # Comando desconocido - sugerir ayuda y comandos similares
+            console.print(f"[red]❌ Comando desconocido: {command}[/red]")
+            available_commands = self.get_all_available_commands()
+            similar_commands = [cmd for cmd in available_commands if command.lower() in cmd.lower() or cmd.lower() in command.lower()]
+            if similar_commands:
+                console.print(f"[yellow]💡 Comandos similares: {', '.join(similar_commands[:3])}[/yellow]")
             logger.error(f"Comando desconocido: {command}")
             self.cmd_help()
         except Exception as e:
+            error_msg = str(e)
+            console.print(f"[red]❌ Error ejecutando comando {command}: {error_msg}[/red]")
+            
+            # Sugerencias automáticas basadas en el tipo de error
+            if "No vault found" in error_msg:
+                console.print("[yellow]💡 Sugerencia: Configura un vault con 'para obsidian-vault'[/yellow]")
+            elif "ModuleNotFoundError" in error_msg:
+                console.print("[yellow]💡 Sugerencia: Instala dependencias con 'pip install -r requirements.txt'[/yellow]")
+            elif "Permission denied" in error_msg:
+                console.print("[yellow]💡 Sugerencia: Verifica permisos de escritura en el directorio[/yellow]")
+            elif "Connection refused" in error_msg:
+                console.print("[yellow]💡 Sugerencia: Verifica que ChromaDB esté ejecutándose[/yellow]")
+            
+            # Ejecutar doctor automáticamente para errores críticos
+            if any(keyword in error_msg.lower() for keyword in ['chromadb', 'ollama', 'model', 'import', 'module']):
+                console.print("[yellow]🔧 Ejecutando doctor automático...[/yellow]")
+                try:
+                    from paralib.log_manager import PARALogManager
+                    log_manager = PARALogManager()
+                    log_manager.doctor()
+                    console.print("[green]✅ Doctor completado. Intenta ejecutar el comando nuevamente.[/green]")
+                except Exception as doctor_error:
+                    console.print(f"[red]❌ Error ejecutando doctor: {doctor_error}[/red]")
+            
             logger.error(f"Error ejecutando comando {command}: {e}")
     
     def _execute_ai_prompt(self, prompt: str, additional_args: list):
@@ -195,41 +234,54 @@ class PARACLI:
             console.print(f"\n[bold red]❌ Error: {e}[/bold red]")
     
     def _execute_interpreted_command(self, ai_command: AICommand, additional_args: list) -> bool:
-        """Ejecuta un comando interpretado por AI."""
-        from rich.prompt import Confirm
-        
-        # Confirmar ejecución (la interpretación ya se mostró en _execute_ai_prompt)
-        if not Confirm.ask(f"¿Ejecutar comando {ai_command.command}?"):
-            return False
-        
+        """Ejecuta un comando interpretado por AI con aprendizaje automático."""
         try:
-            # Convertir guiones en guiones bajos para el nombre del método
-            method_name = f"cmd_{ai_command.command.replace('-', '_')}"
-            
-            # Ejecutar comando
-            if hasattr(self, method_name):
-                method = getattr(self, method_name)
-                all_args = ai_command.args + additional_args
-                method(*all_args)
-                return True
+            # Ejecutar el comando
+            if ai_command.command in self.core_commands:
+                result = self.core_commands[ai_command.command](*ai_command.args)
             else:
-                console.print(f"[red]❌ Comando '{ai_command.command}' no encontrado (método: {method_name}).[/red]")
-                return False
-                
-        except Exception as e:
-            logger.error(f"Error ejecutando comando interpretado: {e}")
-            console.print(f"[red]❌ Error ejecutando el comando.[/red]")
+                # Comando de plugin
+                plugin_command = self.plugin_manager.get_command(ai_command.command)
+                if plugin_command:
+                    result = plugin_command.function(*ai_command.args)
+                else:
+                    logger.error(f"Comando no encontrado: {ai_command.command}")
+                    return False
             
-            # Auto-ejecutar doctor si hay error
-            console.print(f"\n[bold yellow]🔧 Error detectado. Ejecutando doctor automático...[/bold yellow]")
+            # APRENDIZAJE AUTOMÁTICO: Registrar la ejecución para aprendizaje entre ejecuciones
             try:
-                from paralib.log_manager import PARALogManager
-                log_manager = PARALogManager()
-                log_manager.doctor()
-                console.print(f"\n[bold green]✅ Doctor completado. Intenta ejecutar el comando nuevamente.[/bold green]")
-            except Exception as doctor_error:
-                console.print(f"[red]❌ Error ejecutando doctor: {doctor_error}[/red]")
+                from paralib.learning_system import PARA_Learning_System
+                learning_system = PARA_Learning_System()
+                learning_system.record_command_execution(
+                    command=ai_command.command,
+                    args=ai_command.args,
+                    success=True,
+                    confidence=ai_command.confidence,
+                    reasoning=ai_command.reasoning
+                )
+                logger.info(f"✅ Aprendizaje registrado para comando: {ai_command.command}")
+            except Exception as learn_error:
+                logger.warning(f"⚠️ Error registrando aprendizaje: {learn_error}")
             
+            return True
+        except Exception as e:
+            # Registrar aprendizaje incluso en caso de error
+            try:
+                from paralib.learning_system import PARA_Learning_System
+                learning_system = PARA_Learning_System()
+                learning_system.record_command_execution(
+                    command=ai_command.command,
+                    args=ai_command.args,
+                    success=False,
+                    confidence=ai_command.confidence,
+                    reasoning=ai_command.reasoning,
+                    error=str(e)
+                )
+                logger.info(f"❌ Aprendizaje registrado (error) para comando: {ai_command.command}")
+            except Exception as learn_error:
+                logger.warning(f"⚠️ Error registrando aprendizaje: {learn_error}")
+            
+            logger.error(f"Error ejecutando comando {ai_command.command}: {e}")
             return False
     
     def _require_vault(self, vault_path=None, interactive=True, silent=False):
@@ -508,8 +560,244 @@ class PARACLI:
         if ai_stats['total'] > 0:
             console.print(f"Tasa de éxito AI: {ai_stats['success_rate']:.1%}")
 
+    def cmd_export_knowledge(self, *args):
+        """Exporta todo el conocimiento de la CLI para transferir entre Macs."""
+        try:
+            from paralib.learning_system import PARA_Learning_System
+            export_path = PARA_Learning_System.export_learning_knowledge()
+            print(f"✅ Conocimiento exportado exitosamente a: {export_path}")
+            print(f"📁 Archivo listo para transferir a otra Mac")
+            print(f"💡 Usa 'para import-knowledge {export_path}' en la otra Mac")
+        except Exception as e:
+            print(f"❌ Error exportando conocimiento: {e}")
+            return 1
+
+    def cmd_import_knowledge(self, *args):
+        """Importa conocimiento de la CLI desde un archivo exportado."""
+        if len(args) < 1:
+            print("❌ Uso: para import-knowledge <archivo_exportado.json>")
+            return 1
+        
+        import_path = args[0]
+        if not os.path.exists(import_path):
+            print(f"❌ Archivo no encontrado: {import_path}")
+            return 1
+        
+        try:
+            from paralib.learning_system import PARA_Learning_System
+            results = PARA_Learning_System.import_learning_knowledge(import_path)
+            if 'error' in results:
+                print(f"❌ Error importando: {results['error']}")
+                return 1
+            
+            print("✅ Conocimiento importado exitosamente:")
+            print(f"   📊 Métricas: {results['learning_metrics_imported']} registros")
+            print(f"   🏷️  Clasificaciones: {results['classifications_imported']} registros")
+            print(f"   💬 Feedback: {results['feedback_imported']} registros")
+            print(f"   📁 Patrones: {results['patterns_imported']} registros")
+            print(f"   🧠 Datos semánticos: {results['semantic_data_imported']} registros")
+            print(f"   ⚙️  Preferencias: {'✅' if results['preferences_imported'] else '❌'}")
+            print(f"   📈 Evolución: {'✅' if results['evolution_imported'] else '❌'}")
+            print("🚀 La CLI ahora es más inteligente con el conocimiento importado")
+        except Exception as e:
+            print(f"❌ Error importando conocimiento: {e}")
+            return 1
+
+    def cmd_learning_status(self, *args):
+        """Muestra el estado actual del aprendizaje de la CLI."""
+        from rich.table import Table
+        from rich.panel import Panel
+        from rich.progress import Progress, SpinnerColumn, TextColumn
+        from paralib.learning_system import PARA_Learning_System
+        import sqlite3
+        
+        console.print(Panel("[bold blue]🧠 Estado del Aprendizaje de la CLI[/bold blue]"))
+        
+        try:
+            from paralib.vault import find_vault
+            vault_path = find_vault()
+            if not vault_path:
+                from pathlib import Path
+                vault_path = Path.cwd() / "default_learning"
+            learning_system = PARA_Learning_System(vault_path=vault_path)
+            learning_system._init_learning_database()  # Forzar creación de tablas
+            
+            # Obtener métricas recientes
+            conn = sqlite3.connect(learning_system.learning_db_path)
+            cursor = conn.cursor()
+            
+            # Métricas generales
+            cursor.execute("""
+                SELECT 
+                    COUNT(*) as total_executions,
+                    SUM(success) as successful_executions,
+                    AVG(confidence) as avg_confidence,
+                    COUNT(DISTINCT command) as unique_commands
+                FROM command_executions
+            """)
+            
+            general_stats = cursor.fetchone()
+            
+            # Últimas métricas de aprendizaje
+            cursor.execute("""
+                SELECT accuracy_rate, learning_velocity, improvement_score, timestamp
+                FROM learning_metrics 
+                ORDER BY timestamp DESC 
+                LIMIT 5
+            """)
+            
+            learning_metrics = cursor.fetchall()
+            
+            # Comandos más usados
+            cursor.execute("""
+                SELECT command, COUNT(*) as usage_count, AVG(success) as success_rate
+                FROM command_executions 
+                GROUP BY command 
+                ORDER BY usage_count DESC 
+                LIMIT 10
+            """)
+            
+            command_stats = cursor.fetchall()
+            
+            # Ejecuciones recientes
+            cursor.execute("""
+                SELECT command, success, confidence, timestamp
+                FROM command_executions 
+                ORDER BY timestamp DESC 
+                LIMIT 10
+            """)
+            
+            recent_executions = cursor.fetchall()
+            
+            conn.close()
+            
+            # Mostrar métricas generales
+            if general_stats and general_stats[0]:
+                total_executions = general_stats[0]
+                success_rate = general_stats[1] / total_executions if general_stats[1] else 0
+                avg_confidence = general_stats[2] or 0
+                unique_commands = general_stats[3] or 0
+                
+                stats_table = Table(title="📊 Métricas Generales")
+                stats_table.add_column("Métrica", style="cyan")
+                stats_table.add_column("Valor", style="green")
+                
+                stats_table.add_row("Total Ejecuciones", str(total_executions))
+                stats_table.add_row("Tasa de Éxito", f"{success_rate:.1%}")
+                stats_table.add_row("Confianza Promedio", f"{avg_confidence:.2f}")
+                stats_table.add_row("Comandos Únicos", str(unique_commands))
+                stats_table.add_row("Diversidad", f"{unique_commands/max(total_executions,1):.1%}")
+                
+                console.print(stats_table)
+            
+            # Mostrar evolución del aprendizaje
+            if learning_metrics:
+                evolution_table = Table(title="📈 Evolución del Aprendizaje (Últimas 5 métricas)")
+                evolution_table.add_column("Fecha", style="cyan")
+                evolution_table.add_column("Precisión", style="green")
+                evolution_table.add_column("Velocidad", style="yellow")
+                evolution_table.add_column("Mejora", style="magenta")
+                
+                for metric in learning_metrics:
+                    accuracy, velocity, improvement, timestamp = metric
+                    date_str = timestamp.split('T')[0] if 'T' in timestamp else timestamp[:10]
+                    evolution_table.add_row(
+                        date_str,
+                        f"{accuracy:.1%}" if accuracy else "N/A",
+                        f"{velocity:.2f}" if velocity else "N/A",
+                        f"{improvement:.2f}" if improvement else "N/A"
+                    )
+                
+                console.print(evolution_table)
+            
+            # Mostrar comandos más usados
+            if command_stats:
+                commands_table = Table(title="🔥 Comandos Más Usados")
+                commands_table.add_column("Comando", style="cyan")
+                commands_table.add_column("Usos", style="green")
+                commands_table.add_column("Éxito", style="yellow")
+                
+                for cmd_stat in command_stats:
+                    command, usage_count, success_rate = cmd_stat
+                    commands_table.add_row(
+                        command,
+                        str(usage_count),
+                        f"{success_rate:.1%}" if success_rate else "N/A"
+                    )
+                
+                console.print(commands_table)
+            
+            # Mostrar ejecuciones recientes
+            if recent_executions:
+                recent_table = Table(title="🕒 Ejecuciones Recientes")
+                recent_table.add_column("Comando", style="cyan")
+                recent_table.add_column("Estado", style="green")
+                recent_table.add_column("Confianza", style="yellow")
+                recent_table.add_column("Hora", style="dim")
+                
+                for execution in recent_executions:
+                    command, success, confidence, timestamp = execution
+                    status = "✅" if success else "❌"
+                    time_str = timestamp.split('T')[1][:8] if 'T' in timestamp else timestamp[-8:]
+                    recent_table.add_row(
+                        command,
+                        status,
+                        f"{confidence:.2f}" if confidence else "N/A",
+                        time_str
+                    )
+                
+                console.print(recent_table)
+            
+            # Resumen del estado de aprendizaje
+            if learning_metrics:
+                latest_accuracy = learning_metrics[0][0] if learning_metrics[0][0] else 0
+                latest_velocity = learning_metrics[0][1] if learning_metrics[0][1] else 0
+                
+                if latest_accuracy > 0.8 and latest_velocity > 0.6:
+                    status = "[bold green]🚀 Excelente - La CLI está aprendiendo muy bien![/bold green]"
+                elif latest_accuracy > 0.6 and latest_velocity > 0.4:
+                    status = "[bold yellow]📈 Bueno - La CLI está mejorando[/bold yellow]"
+                else:
+                    status = "[bold red]⚠️ Necesita atención - La CLI necesita más entrenamiento[/bold red]"
+                
+                console.print(Panel(status, title="Estado General"))
+            
+        except Exception as e:
+            console.print(f"[red]❌ Error obteniendo estado de aprendizaje: {e}[/red]")
+            return 1
+
+    def cmd_logs_errors(self, *args):
+        """Muestra los errores recientes del log unificado para QA y debugging."""
+        log_path = 'logs/para.log'
+        try:
+            with open(log_path, 'r', encoding='utf-8') as f:
+                lines = f.readlines()
+            error_lines = [l for l in lines if re.search(r'ERROR|❌|Traceback', l)]
+            if not error_lines:
+                print('✅ No se encontraron errores recientes en el log.')
+                return
+            print('--- Errores recientes en logs/para.log ---')
+            for l in error_lines[-50:]:
+                print(l.strip())
+        except FileNotFoundError:
+            print('No se encontró el archivo de log unificado (logs/para.log).')
+        except Exception as e:
+            print(f'Error leyendo el log: {e}')
+
 def main():
     """Función principal."""
+    from paralib.learning_system import PARA_Learning_System
+    from paralib.vault import find_vault
+    from pathlib import Path
+    
+    # Obtener el vault path por defecto
+    vault_path = find_vault()
+    if not vault_path:
+        vault_path = Path.cwd() / "default_learning"
+    
+    global learning_system
+    learning_system = PARA_Learning_System(vault_path=vault_path)  # Inicializar con vault_path
+    
     cli = PARACLI()
     cli.run()
 
