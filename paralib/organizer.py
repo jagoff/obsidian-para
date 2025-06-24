@@ -1,50 +1,31 @@
 """
 paralib/organizer.py
 
-Contiene la lógica principal para el proceso de organización de notas.
-POTENCIADO CON CHROMADB para máxima precisión de clasificación PARA.
+Organizador principal del sistema PARA.
+Coordina la clasificación, reclasificación y organización de notas usando IA.
 """
-#
-# MIT License
-#
-# Copyright (c) 2024 Fernando Ferrari
-#
-# Permission is hereby granted, free of charge, to any person obtaining a copy
-# of this software and associated documentation files (the "Software"), to deal
-# in the Software without restriction, including without limitation the rights
-# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-# copies of the Software, and to permit persons to whom the Software is
-# furnished to do so, subject to the following conditions:
-#
-# The above copyright notice and this permission notice shall be included in all
-# copies or substantial portions of the Software.
-#
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-# SOFTWARE.
-#
-from pathlib import Path
-from rich.console import Console
-from rich.progress import Progress
-from rich.table import Table
-from rich import box
-from rich.prompt import Confirm
-from .db import ChromaPARADatabase
-import ollama
 import json
+import re
 import shutil
-from paralib.similarity import normalize_name
-from paralib.vault import (
-    extract_structured_features_from_note, 
-    score_para_classification, 
-    load_para_config
-)
-from paralib.analyze_manager import AnalyzeManager
-from paralib.learning_system import PARA_Learning_System
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple, Any
+from datetime import datetime
+import logging
+
+from rich.console import Console
+from rich.table import Table
+from rich.progress import Progress, SpinnerColumn, TextColumn
+from rich.prompt import Confirm
+from rich.panel import Panel
+
+from .db import ChromaPARADatabase
+from .config import load_config
+from .vault import load_para_config
+from .vault_selector import vault_selector
+from .analyze_manager import AnalyzeManager
+from .logger import logger
+import ollama
+from paralib.ai_engine import AIEngine
 
 console = Console()
 
@@ -143,38 +124,11 @@ Output ONLY a JSON object with this structure:
 
 def classify_note_with_llm(note_content: str, user_directive: str, model_name: str, system_prompt: str) -> dict | None:
     """
-    Usa un LLM local a través de Ollama para clasificar una nota.
+    Usa el motor AIEngine centralizado para clasificar una nota con LLM, evitando duplicación y asegurando logging correcto.
     """
-    console.print(f"🤖 [dim]Consultando IA ({model_name}) para clasificación...[/dim]")
-    prompt = f"""High-level directive: "{user_directive}"\n\nNote content:\n---\n{note_content[:4000]}"""
-    try:
-        response = ollama.chat(
-            model=model_name, 
-            messages=[
-                {'role': 'system', 'content': system_prompt},
-                {'role': 'user', 'content': prompt},
-            ],
-            options={'temperature': 0.0}
-        )
-        content = response['message']['content']
-        if content.startswith("```json"):
-            content = content.strip("```json\n").strip("`")
-        result = json.loads(content)
-        if isinstance(result, dict):
-            console.print(f"✅ [dim]IA clasificó como: {result.get('category', 'Unknown')} -> {result.get('folder_name', 'Unknown')}[/dim]")
-        else:
-            console.print(f"[bold red]Error: El LLM devolvió un formato inesperado: {type(result)}[/bold red]")
-            return None
-        return result
-    except json.JSONDecodeError:
-        console.print("[bold red]Error: El LLM no devolvió un JSON válido.[/bold red]")
-        return None
-    except Exception as e:
-        if "model" in str(e) and "not found" in str(e):
-             console.print(f"[bold red]Error: Modelo de IA '{model_name}' no encontrado. Asegurate de que Ollama esté corriendo y hayas ejecutado 'ollama pull {model_name}'.[/bold red]")
-        else:
-            console.print(f"[bold red]Error al contactar con Ollama: {e}[/bold red]")
-        return None
+    engine = AIEngine(model_name=model_name)
+    result = engine.classify_note_with_llm(note_content, user_directive, system_prompt)
+    return result
 
 def check_ollama_model(model_name: str) -> bool:
     """
@@ -556,9 +510,22 @@ def _process_notes_classification(vault_path: Path, db: ChromaPARADatabase, extr
                     )
                     
                     if execute:
-                        # Mover la nota a la categoría correspondiente
-                        target_folder = vault_path / category / folder_name
+                        # Asegurar que la categoría tenga el número correcto
+                        category_mapping = {
+                            'Projects': '01-Projects',
+                            'Areas': '02-Areas', 
+                            'Resources': '03-Resources',
+                            'Archive': '04-Archive',
+                            'Inbox': '00-Inbox'
+                        }
+                        
+                        target_category = category_mapping.get(category, category)
+                        target_folder = vault_path / target_category / folder_name
                         target_folder.mkdir(parents=True, exist_ok=True)
+                        
+                        # Extraer scores del resultado
+                        semantic_score = result.get('semantic_score', 0.0)
+                        ai_score = result.get('ai_score', 0.0)
                         
                         # Registrar la creación de carpeta para el sistema de aprendizaje
                         register_folder_creation(
@@ -586,9 +553,9 @@ def _process_notes_classification(vault_path: Path, db: ChromaPARADatabase, extr
                         shutil.move(str(note_path), str(target_path))
                         
                         # Actualizar en ChromaDB
-                        db.update_note_category(target_path, category, folder_name)
+                        db.update_note_category(target_path, target_category, folder_name)
                         
-                        console.print(f"✅ [green]Movido: {note_path.name} → {category}/{folder_name}/[/green]")
+                        console.print(f"✅ [green]Movido: {note_path.name} → {target_category}/{folder_name}/[/green]")
                     else:
                         console.print(f"📋 [dim]Simulación: {note_path.name} → {category}/{folder_name}/[/dim]")
                 else:
@@ -1379,6 +1346,10 @@ def _process_notes_classification(vault_path: Path, db: ChromaPARADatabase, extr
                         target_folder = vault_path / target_category / folder_name
                         target_folder.mkdir(parents=True, exist_ok=True)
                         
+                        # Extraer scores del resultado
+                        semantic_score = result.get('semantic_score', 0.0)
+                        ai_score = result.get('ai_score', 0.0)
+                        
                         # Registrar la creación de carpeta para el sistema de aprendizaje
                         register_folder_creation(
                             folder_name=folder_name,
@@ -1782,17 +1753,23 @@ def execute_classification_plan(plan: dict, vault_path: Path, db: ChromaPARAData
     """
     from paralib.utils import auto_backup_if_needed
     
+    logger.info(f"[EXECUTE-PLAN] Iniciando ejecución de plan de clasificación")
+    logger.info(f"[EXECUTE-PLAN] Vault: {vault_path}, Notas: {plan['summary']['total_notes']}, Riesgo: {plan['risk_assessment']['level']}")
+    
     console.print(f"\n{'='*80}")
     console.print(f"[bold green]🚀 EJECUTANDO PLAN DE CLASIFICACIÓN[/bold green]")
     console.print(f"{'='*80}")
     
     # Crear backup automático
+    backup_reason = f"pre-classification-{source_folder_name}" if source_folder_name else "pre-full-reclassification"
     console.print(f"🔒 [bold]Creando backup automático...[/bold]")
-    backup_success = auto_backup_if_needed(vault_path, reason=f"pre-classification-{source_folder_name}")
+    backup_success = auto_backup_if_needed(vault_path, reason=backup_reason)
     
     if not backup_success:
+        logger.error(f"[EXECUTE-PLAN] Error al crear backup: {backup_reason}")
         console.print(f"❌ [red]Error al crear backup. ¿Deseas continuar?[/red]")
         if not Confirm.ask("¿Continuar sin backup?", default=False):
+            logger.warning(f"[EXECUTE-PLAN] Ejecución cancelada por el usuario (sin backup)")
             console.print(f"❌ [red]Ejecución cancelada por el usuario.[/red]")
             return False
     
@@ -1802,24 +1779,51 @@ def execute_classification_plan(plan: dict, vault_path: Path, db: ChromaPARAData
     console.print(f"⏱️ Tiempo estimado: {plan['estimated_time']}")
     console.print(f"⚠️ Nivel de riesgo: {plan['risk_assessment']['level'].upper()}")
     
-    if not Confirm.ask("¿Ejecutar la clasificación?", default=False):
-        console.print(f"❌ [red]Ejecución cancelada por el usuario.[/red]")
+    try:
+        if not Confirm.ask("¿Ejecutar la clasificación?", default=False):
+            logger.warning(f"[EXECUTE-PLAN] Ejecución cancelada por el usuario")
+            console.print(f"❌ [red]Ejecución cancelada por el usuario.[/red]")
+            return False
+    except Exception as e:
+        logger.error(f"[EXECUTE-PLAN] Error en la confirmación: {e}")
+        console.print(f"❌ [red]Error en la confirmación: {e}[/red]")
+        console.print(f"❌ [red]Ejecución cancelada.[/red]")
         return False
     
     # Ejecutar clasificación
+    logger.info(f"[EXECUTE-PLAN] Confirmación aceptada, iniciando clasificación")
     console.print(f"\n[bold green]✅ Ejecutando clasificación...[/bold green]")
     
-    # Usar la función existente pero con execute=True
-    _process_notes_classification(
-        vault_path=vault_path,
-        db=db,
-        extra_prompt=extra_prompt,
-        model_name=model_name,
-        execute=True,
-        source_folder_name=source_folder_name,
-        system_prompt=system_prompt
-    )
+    # Si es re-clasificación total (source_folder_name vacío), procesar todas las notas del plan
+    if not source_folder_name:
+        logger.info(f"[EXECUTE-PLAN] Modo re-clasificación total, procesando {len(plan['notes'])} notas")
+        # Procesar las notas del plan directamente
+        notes_to_process = [note_data['note_path'] for note_data in plan['notes']]
+        
+        # Usar la lógica de procesamiento pero con la lista de notas del plan
+        _process_notes_from_list(
+            vault_path=vault_path,
+            db=db,
+            extra_prompt=extra_prompt,
+            model_name=model_name,
+            execute=True,
+            notes_to_process=notes_to_process,
+            system_prompt=system_prompt
+        )
+    else:
+        logger.info(f"[EXECUTE-PLAN] Modo carpeta específica: {source_folder_name}")
+        # Usar la función existente para carpeta específica
+        _process_notes_classification(
+            vault_path=vault_path,
+            db=db,
+            extra_prompt=extra_prompt,
+            model_name=model_name,
+            execute=True,
+            source_folder_name=source_folder_name,
+            system_prompt=system_prompt
+        )
     
+    logger.info(f"[EXECUTE-PLAN] Clasificación completada exitosamente")
     console.print(f"\n[bold green]🎉 ¡Clasificación completada exitosamente![/bold green]")
     console.print(f"💾 Backup disponible en ./backups/ si fue necesario")
     
@@ -1956,3 +1960,525 @@ def register_folder_creation(folder_name: str, category: str, note_content: str,
         
     except Exception as e:
         console.print(f"[dim]Error registrando carpeta para aprendizaje: {e}[/dim]")
+
+def run_full_reclassification(vault_path: Path, db: ChromaPARADatabase, extra_prompt: str, model_name: str, execute: bool):
+    """
+    Reclasifica todas las notas del vault usando el sistema híbrido y de aprendizaje.
+    Sigue exactamente la misma lógica, experiencia de usuario y robustez que el flujo de clasificación inicial.
+    """
+    logger.info(f"[RECLASSIFY-ALL] Iniciando re-clasificación total del vault: {vault_path}")
+    logger.info(f"[RECLASSIFY-ALL] Modelo: {model_name}, Directiva: {extra_prompt}, Execute: {execute}")
+    
+    console.print(f"\n{'='*60}")
+    console.print(f"[bold blue]🔄 RECLASIFICACIÓN TOTAL DEL VAULT[/bold blue]")
+    console.print(f"{'='*60}")
+    
+    # Asegurar estructura correcta
+    _ensure_correct_para_structure(vault_path)
+    
+    # Recorrer todas las notas del vault
+    all_notes = list(vault_path.rglob("*.md"))
+    if not all_notes:
+        console.print("[yellow]No se encontraron notas en el vault.[/yellow]")
+        return
+    
+    console.print(f"🔍 [bold]Analizando {len(all_notes)} notas para crear plan de reclasificación...[/bold]")
+    console.print(f"🤖 [dim]Modelo de IA: {model_name}[/dim]")
+    console.print(f"📝 [dim]Directiva: {extra_prompt}[/dim]")
+    
+    # Procesar cada nota: archivar diarias vacías primero
+    notes_to_process = []
+    archived_dailies = 0
+    
+    for note_path in all_notes:
+        try:
+            content = note_path.read_text(encoding="utf-8").strip()
+            is_daily = note_path.name.startswith("20") and note_path.name.endswith(".md")
+            
+            if is_daily and (not content or len(content) < 10):
+                # Archivar automáticamente
+                target_folder = vault_path / "04-Archive" / "Daily Notes"
+                target_folder.mkdir(parents=True, exist_ok=True)
+                target_path = target_folder / note_path.name
+                note_path.replace(target_path)
+                db.update_note_category(target_path, "04-Archive", "Daily Notes")
+                console.print(f"[dim]🗃️ Nota diaria vacía archivada: {note_path.name}[/dim]")
+                archived_dailies += 1
+                continue
+            
+            notes_to_process.append(note_path)
+            
+        except Exception as e:
+            console.print(f"[red]Error leyendo {note_path}: {e}[/red]")
+            continue
+    
+    if archived_dailies > 0:
+        console.print(f"[green]✅ {archived_dailies} notas diarias vacías archivadas automáticamente.[/green]")
+    
+    if not notes_to_process:
+        console.print("[yellow]No hay notas para reclasificar después del filtrado.[/yellow]")
+        return
+    
+    # Análisis completo de todas las notas para crear plan
+    analysis_results = []
+    total_analysis = {
+        'total_notes': len(notes_to_process),
+        'by_category': {},
+        'by_confidence': {'high': 0, 'medium': 0, 'low': 0},
+        'by_method': {'consensus': 0, 'chromadb': 0, 'llm': 0},
+        'tags_found': set(),
+        'patterns_found': {'todos': 0, 'dates': 0, 'links': 0, 'attachments': 0},
+        'recent_notes': 0,
+        'old_notes': 0,
+        'complex_notes': 0,
+        'simple_notes': 0
+    }
+    
+    system_prompt = get_profile()
+    
+    with Progress() as progress:
+        task = progress.add_task("Analizando notas...", total=len(notes_to_process))
+        
+        for note_path in notes_to_process:
+            try:
+                note_content = note_path.read_text(encoding='utf-8')
+                
+                # Análisis completo de la nota
+                result = classify_note_with_enhanced_analysis(
+                    note_content, note_path, extra_prompt, model_name, 
+                    system_prompt, db, vault_path
+                )
+                
+                if result:
+                    analysis_results.append({
+                        'note_path': note_path,
+                        'result': result,
+                        'content': note_content
+                    })
+                    
+                    # Actualizar estadísticas
+                    category = result.get('category', 'Unknown')
+                    confidence = result.get('confidence', 0.0)
+                    method = result.get('method', 'unknown')
+                    analysis = result.get('analysis', {})
+                    
+                    # Categorías
+                    if category not in total_analysis['by_category']:
+                        total_analysis['by_category'][category] = 0
+                    total_analysis['by_category'][category] += 1
+                    
+                    # Confianza
+                    if confidence > 0.7:
+                        total_analysis['by_confidence']['high'] += 1
+                    elif confidence > 0.4:
+                        total_analysis['by_confidence']['medium'] += 1
+                    else:
+                        total_analysis['by_confidence']['low'] += 1
+                    
+                    # Método
+                    if method == 'consensus':
+                        total_analysis['by_method']['consensus'] += 1
+                    elif 'chromadb' in method:
+                        total_analysis['by_method']['chromadb'] += 1
+                    else:
+                        total_analysis['by_method']['llm'] += 1
+                    
+                    # Tags
+                    tags = analysis.get('tags', [])
+                    obsidian_tags = analysis.get('obsidian_tags', [])
+                    total_analysis['tags_found'].update(tags)
+                    total_analysis['tags_found'].update(obsidian_tags)
+                    
+                    # Patrones
+                    if analysis.get('has_todos'):
+                        total_analysis['patterns_found']['todos'] += 1
+                    if analysis.get('has_dates'):
+                        total_analysis['patterns_found']['dates'] += 1
+                    if analysis.get('has_links'):
+                        total_analysis['patterns_found']['links'] += 1
+                    if analysis.get('has_attachments'):
+                        total_analysis['patterns_found']['attachments'] += 1
+                    
+                    # Análisis temporal
+                    recency = analysis.get('recency', 'moderate')
+                    if recency in ['very_recent', 'recent']:
+                        total_analysis['recent_notes'] += 1
+                    elif recency in ['old', 'very_old']:
+                        total_analysis['old_notes'] += 1
+                    
+                    # Complejidad
+                    word_count = analysis.get('word_count', 0)
+                    if word_count > 500:
+                        total_analysis['complex_notes'] += 1
+                    elif word_count < 50:
+                        total_analysis['simple_notes'] += 1
+                
+            except Exception as e:
+                console.print(f"❌ [red]Error analizando {note_path.name}: {e}[/red]")
+            
+            progress.advance(task)
+    
+    # Crear plan detallado
+    plan = {
+        'summary': total_analysis,
+        'notes': analysis_results,
+        'recommendations': generate_recommendations(total_analysis),
+        'estimated_time': estimate_execution_time(len(notes_to_process)),
+        'risk_assessment': assess_risks(total_analysis),
+        'backup_recommended': True
+    }
+    
+    # Mostrar plan detallado
+    display_classification_plan(plan, "TODO EL VAULT")
+    
+    # Ejecutar plan con confirmación (igual que en classify)
+    if execute:
+        success = execute_classification_plan(
+            plan=plan,
+            vault_path=vault_path,
+            db=db,
+            extra_prompt=extra_prompt,
+            model_name=model_name,
+            source_folder_name="",  # Vacío para procesar todo el vault
+            system_prompt=system_prompt
+        )
+        
+        if success:
+            console.print("[green]✅ Reclasificación completa. Puedes ver la evolución en el panel de aprendizaje con:[/green]")
+            console.print("[bold cyan]python para_cli.py learn --dashboard[/bold cyan]")
+        else:
+            console.print("[red]❌ Reclasificación cancelada o falló.[/red]")
+            return False
+    else:
+        console.print("[yellow]Modo simulación: No se aplicaron cambios permanentes.[/yellow]")
+        console.print("[green]Para aplicar los cambios, ejecuta con --execute[/green]")
+    
+    return True
+
+def _process_notes_from_list(vault_path: Path, db: ChromaPARADatabase, extra_prompt: str, model_name: str, execute: bool, notes_to_process: list[Path], system_prompt: str):
+    """
+    Procesa una lista específica de notas usando la misma lógica que _process_notes_classification.
+    """
+    logger.info(f"[PROCESS-LIST] Iniciando procesamiento de {len(notes_to_process)} notas")
+    logger.info(f"[PROCESS-LIST] Vault: {vault_path}, Modelo: {model_name}, Execute: {execute}")
+    
+    if not check_ollama_model(model_name):
+        logger.error(f"[PROCESS-LIST] Modelo de IA no disponible: {model_name}")
+        return
+
+    mode_text = "EXECUTE" if execute else "SIMULACIÓN"
+    progress_title = "Procesando y moviendo notas..." if execute else "Simulando clasificación..."
+    
+    if not notes_to_process:
+        logger.warning(f"[PROCESS-LIST] No hay notas para procesar")
+        console.print(f"No hay notas para procesar.")
+        return
+    
+    console.print(f"🤖 Encontradas {len(notes_to_process)} notas para procesar.")
+    console.print(f"🤖 Usando modelo de IA: {model_name}")
+    console.print(f"🔍 POTENCIADO CON CHROMADB para análisis semántico avanzado")
+    console.print()
+    
+    if execute:
+        console.print("Modo EXECUTE activado. Directiva del usuario: '{}'".format(extra_prompt))
+    else:
+        console.print("Modo SIMULACIÓN activado. Directiva del usuario: '{}'".format(extra_prompt))
+    
+    # Mostrar distribución actual
+    console.print(f"\n📊 Distribución actual de categorías:")
+    current_distribution = db.get_category_distribution()
+    for category, count in current_distribution.items():
+        console.print(f"  • {category}: {count} notas")
+    
+    # Tabla de resultados
+    results_table = Table(title=f"Resultados de Clasificación - {mode_text}")
+    results_table.add_column("Nota", style="cyan")
+    results_table.add_column("Categoría", style="green")
+    results_table.add_column("Carpeta", style="yellow")
+    results_table.add_column("Confianza", style="blue")
+    results_table.add_column("Método", style="magenta")
+    results_table.add_column("Tags", style="cyan")
+    results_table.add_column("Patrones", style="yellow")
+
+    processed_count = 0
+    error_count = 0
+
+    with Progress() as progress:
+        task = progress.add_task(progress_title, total=len(notes_to_process))
+        
+        for note_path in notes_to_process:
+            try:
+                note_content = note_path.read_text(encoding='utf-8')
+                
+                # Usar clasificación potenciada con ChromaDB
+                result = classify_note_with_enhanced_analysis(
+                    note_content, note_path, extra_prompt, model_name, 
+                    system_prompt, db, vault_path
+                )
+                
+                if result:
+                    category = result.get('category', 'Unknown')
+                    folder_name = result.get('folder_name', 'Unknown')
+                    confidence = result.get('confidence', 0.0)
+                    method = result.get('method', 'unknown')
+                    analysis = result.get('analysis', {})
+                    
+                    logger.debug(f"[PROCESS-LIST] Clasificado: {note_path.name} -> {category}/{folder_name} (conf: {confidence:.3f})")
+                    
+                    # Mostrar método de clasificación
+                    method_display = {
+                        'consensus': '✅ Consenso',
+                        'chromadb_weighted': '🔍 ChromaDB',
+                        'llm_weighted': '🤖 IA',
+                        'chromadb_only': '🔍 Solo ChromaDB',
+                        'llm_only': '🤖 Solo IA'
+                    }.get(method, method)
+                    
+                    # Información de tags
+                    tags = analysis.get('tags', [])
+                    obsidian_tags = analysis.get('obsidian_tags', [])
+                    tags_display = []
+                    if obsidian_tags:
+                        tags_display.extend(obsidian_tags)
+                    tags_display.extend([t for t in tags[:3] if t not in obsidian_tags])
+                    tags_text = ', '.join(tags_display[:5]) if tags_display else "N/A"
+                    
+                    # Información de patrones
+                    patterns = []
+                    if analysis.get('has_todos'):
+                        patterns.append(f"📝{analysis.get('todo_count', 0)}")
+                    if analysis.get('has_dates'):
+                        patterns.append("📅")
+                    if analysis.get('has_links'):
+                        patterns.append(f"🔗{analysis.get('link_count', 0)}")
+                    if analysis.get('has_attachments'):
+                        patterns.append("📎")
+                    
+                    patterns_text = ' '.join(patterns) if patterns else "N/A"
+                    
+                    results_table.add_row(
+                        note_path.name,
+                        category,
+                        folder_name,
+                        f"{confidence:.3f}",
+                        method_display,
+                        tags_text,
+                        patterns_text
+                    )
+                    
+                    if execute:
+                        # Asegurar que la categoría tenga el número correcto
+                        category_mapping = {
+                            'Projects': '01-Projects',
+                            'Areas': '02-Areas', 
+                            'Resources': '03-Resources',
+                            'Archive': '04-Archive',
+                            'Inbox': '00-Inbox'
+                        }
+                        
+                        target_category = category_mapping.get(category, category)
+                        target_folder = vault_path / target_category / folder_name
+                        target_folder.mkdir(parents=True, exist_ok=True)
+                        
+                        # Extraer scores del resultado
+                        semantic_score = result.get('semantic_score', 0.0)
+                        ai_score = result.get('ai_score', 0.0)
+                        
+                        # Registrar la creación de carpeta para el sistema de aprendizaje
+                        register_folder_creation(
+                            folder_name=folder_name,
+                            category=category,
+                            note_content=note_content,
+                            note_path=note_path,
+                            confidence=confidence,
+                            method_used=method_display,
+                            semantic_score=semantic_score,
+                            ai_score=ai_score,
+                            vault_path=vault_path,
+                            db=db
+                        )
+                        
+                        target_path = target_folder / note_path.name
+                        if target_path.exists():
+                            # Generar nombre único
+                            counter = 1
+                            while target_path.exists():
+                                name_parts = note_path.stem, f"_{counter}", note_path.suffix
+                                target_path = target_folder / "".join(name_parts)
+                                counter += 1
+                        
+                        shutil.move(str(note_path), str(target_path))
+                        
+                        # Actualizar en ChromaDB
+                        db.update_note_category(target_path, target_category, folder_name)
+                        
+                        logger.info(f"[PROCESS-LIST] Movido: {note_path.name} -> {target_category}/{folder_name}/")
+                        console.print(f"✅ [green]Movido: {note_path.name} → {target_category}/{folder_name}/[/green]")
+                    else:
+                        console.print(f"📋 [dim]Simulación: {note_path.name} → {category}/{folder_name}/[/dim]")
+                    
+                    processed_count += 1
+                else:
+                    logger.error(f"[PROCESS-LIST] Error al clasificar: {note_path.name}")
+                    console.print(f"❌ [red]Error al clasificar: {note_path.name}[/red]")
+                    results_table.add_row(note_path.name, "ERROR", "ERROR", "0.000", "ERROR", "N/A", "N/A")
+                    error_count += 1
+                
+            except Exception as e:
+                logger.error(f"[PROCESS-LIST] Error procesando {note_path.name}: {e}")
+                console.print(f"❌ [red]Error procesando {note_path.name}: {e}[/red]")
+                results_table.add_row(note_path.name, "ERROR", "ERROR", "0.000", "ERROR", "N/A", "N/A")
+                error_count += 1
+            
+            progress.advance(task)
+
+    logger.info(f"[PROCESS-LIST] Procesamiento completado. Procesadas: {processed_count}, Errores: {error_count}")
+    console.print(f"\n[bold]📊 Resumen de clasificación:[/bold]")
+    console.print(results_table)
+    
+    # Mostrar estadísticas finales
+    if execute:
+        console.print(f"\n[bold]🎯 Estadísticas finales:[/bold]")
+        final_distribution = db.get_category_distribution()
+        for category, count in final_distribution.items():
+            console.print(f"  • {category}: {count} notas")
+        
+        logger.info(f"[PROCESS-LIST] Distribución final: {final_distribution}")
+
+class PARAOrganizer:
+    """Organizador principal de PARA que coordina todas las operaciones."""
+    
+    def __init__(self):
+        self.config = load_config("para_config.default.json")
+        self.model_name = self.config.get("model_name", "llama3.2:3b")
+        # Inicializar ChromaDB sin db_path específico (usará el por defecto)
+        try:
+            self.db = ChromaPARADatabase()
+        except TypeError:
+            # Si requiere db_path, usar el por defecto
+            from paralib.vault import find_vault
+            vault = find_vault()
+            if vault:
+                db_path = vault / ".para_db" / "chroma"
+                self.db = ChromaPARADatabase(db_path=str(db_path))
+            else:
+                # Fallback a directorio temporal
+                import tempfile
+                temp_dir = Path(tempfile.gettempdir()) / "para_chroma"
+                self.db = ChromaPARADatabase(db_path=str(temp_dir))
+    
+    def reclassify_all_notes(self, vault_path: str = None, create_backup: bool = True, auto_confirm: bool = False):
+        """Reclasifica todas las notas del vault usando el sistema híbrido y de aprendizaje."""
+        
+        # Obtener vault usando el nuevo sistema centralizado
+        vault = vault_selector.get_vault(vault_path)
+        if not vault:
+            console.print("[red]❌ No se encontró ningún vault de Obsidian.[/red]")
+            return False
+        
+        vault_path = Path(vault)
+        
+        # Crear backup si se solicita
+        if create_backup:
+            from paralib.utils import auto_backup_if_needed
+            if not auto_backup_if_needed(vault_path, "pre-reclassification"):
+                console.print("[yellow]⚠️ No se pudo crear backup automático. ¿Continuar?[/yellow]")
+                if not Confirm.ask("¿Continuar sin backup?"):
+                    return False
+        
+        # Configurar confirmación automática si se solicita
+        if auto_confirm:
+            # Modificar temporalmente la función Confirm.ask para que siempre devuelva True
+            import paralib.organizer
+            original_ask = paralib.organizer.Confirm.ask
+            paralib.organizer.Confirm.ask = lambda *args, **kwargs: True
+        
+        try:
+            # Usar la función existente run_full_reclassification que procesa TODAS las notas
+            success = run_full_reclassification(
+                vault_path=vault_path,
+                db=self.db,
+                extra_prompt="Reclasificar todas las notas del vault usando el sistema híbrido completo",
+                model_name=self.model_name,
+                execute=True
+            )
+            
+            if success:
+                console.print("[green]✅ Reclasificación completa exitosa![/green]")
+                return True
+            else:
+                console.print("[red]❌ Reclasificación falló o fue cancelada.[/red]")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Error en reclassify_all_notes: {e}")
+            console.print(f"[red]❌ Error durante la reclasificación: {e}[/red]")
+            return False
+        finally:
+            # Restaurar Confirm.ask si se modificó
+            if auto_confirm:
+                paralib.organizer.Confirm.ask = original_ask
+    
+    def classify_note(self, note_path: str, auto_confirm: bool = False, create_backup: bool = True):
+        """Clasifica una nota específica."""
+        
+        # Obtener vault usando el nuevo sistema centralizado
+        vault = vault_selector.get_vault()
+        if not vault:
+            console.print("[red]❌ No se encontró ningún vault de Obsidian.[/red]")
+            return False
+        
+        vault_path = Path(vault)
+        note_path = Path(note_path)
+        
+        # Crear backup si se solicita
+        if create_backup:
+            from paralib.utils import auto_backup_if_needed
+            if not auto_backup_if_needed(vault_path, "pre-classification"):
+                console.print("[yellow]⚠️ No se pudo crear backup automático. ¿Continuar?[/yellow]")
+                if not Confirm.ask("¿Continuar sin backup?"):
+                    return False
+        
+        # Usar la función existente para clasificar una nota
+        system_prompt = get_profile()
+        result = classify_note_with_enhanced_analysis(
+            note_path.read_text(encoding='utf-8'),
+            note_path,
+            "Clasificar esta nota usando el sistema híbrido",
+            self.model_name,
+            system_prompt,
+            self.db,
+            vault_path
+        )
+        
+        if result:
+            console.print(f"[green]✅ Nota clasificada: {result.get('category')}/{result.get('folder_name')}[/green]")
+            return True
+        else:
+            console.print("[red]❌ Error clasificando la nota.[/red]")
+            return False
+    
+    def plan_classification(self, path: str):
+        """Genera un plan de clasificación para una nota o carpeta."""
+        
+        # Obtener vault usando el nuevo sistema centralizado
+        vault = vault_selector.get_vault()
+        if not vault:
+            console.print("[red]❌ No se encontró ningún vault de Obsidian.[/red]")
+            return False
+        
+        vault_path = Path(vault)
+        path = Path(path)
+        
+        # Usar la función existente para crear plan
+        system_prompt = get_profile()
+        plan = create_classification_plan(
+            vault_path=vault_path,
+            db=self.db,
+            extra_prompt="Crear plan de clasificación",
+            model_name=self.model_name,
+            source_folder_name=path.name if path.is_dir() else "",
+            system_prompt=system_prompt
+        )
+        
+        return plan

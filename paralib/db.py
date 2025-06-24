@@ -365,4 +365,73 @@ class ChromaPARADatabase:
                 except:
                     pass
         
-        return recent_notes 
+        return recent_notes
+
+    def get_database_stats(self) -> dict:
+        """
+        Devuelve estadísticas generales de la base de datos PARA/ChromaDB.
+        Returns:
+            dict: total de notas, distribución por categoría, proyectos recientes, última actualización
+        """
+        total_notes = self.collection.count()
+        category_distribution = self.get_category_distribution()
+        recent_projects = self.get_project_patterns().get('recent_projects', [])
+        all_metadata = self.get_all_notes_metadata()
+        last_updated = None
+        if all_metadata:
+            try:
+                last_updated = max(m.get('last_updated_utc') for m in all_metadata if m.get('last_updated_utc'))
+            except Exception:
+                last_updated = None
+        return {
+            'total_notes': total_notes,
+            'category_distribution': category_distribution,
+            'recent_projects': recent_projects,
+            'last_updated': last_updated
+        }
+
+    def list_collections(self) -> list:
+        """
+        Devuelve una lista de todas las colecciones disponibles en la instancia de ChromaDB, con detalles útiles para diagnóstico.
+        Returns:
+            list: Lista de diccionarios con nombre, cantidad de documentos, metadatos, fecha de creación, ejemplo de documento, tamaño estimado y estado.
+        """
+        collections = []
+        for col in self.client.list_collections():
+            try:
+                # Soporte robusto para dicts u objetos
+                col_name = col['name'] if isinstance(col, dict) else col.name
+                collection = self.client.get_collection(col_name)
+                count = collection.count()
+                metadata = getattr(collection, 'metadata', {})
+                # Intentar obtener fecha de creación si está en metadatos
+                created = metadata.get('created_at') if isinstance(metadata, dict) else None
+                # Obtener ejemplo de documento
+                example_doc = None
+                try:
+                    docs = collection.get(include=["documents"])
+                    example_doc = docs.get("documents", [None])[0] if docs.get("documents") else None
+                except Exception:
+                    example_doc = None
+                # Intentar estimar tamaño (no siempre disponible)
+                size_bytes = None
+                try:
+                    # Si la colección tiene método para tamaño, usarlo (ChromaDB no lo expone por defecto)
+                    if hasattr(collection, 'size_bytes'):
+                        size_bytes = collection.size_bytes
+                except Exception:
+                    size_bytes = None
+                collections.append({
+                    'name': col_name,
+                    'count': count,
+                    'metadata': metadata,
+                    'created_at': created,
+                    'example_doc': example_doc,
+                    'size_bytes': size_bytes,
+                    'status': 'OK'
+                })
+            except Exception as e:
+                # Soporte robusto para dicts u objetos
+                col_name = col['name'] if isinstance(col, dict) else getattr(col, 'name', str(col))
+                collections.append({'name': col_name, 'error': str(e), 'status': 'ERROR'})
+        return collections 

@@ -1,4 +1,85 @@
-# PARA: Organización Inteligente de Vaults Obsidian
+# PARA System with ChromaDB
+
+## 🚀 Portabilidad y Setup en nueva Mac
+
+1. **Clona el repositorio:**
+   ```bash
+   git clone <URL_DEL_REPO>
+   cd obsidian-para
+   ```
+2. **Instala el sistema:**
+   ```bash
+   ./install_para_system.sh
+   ```
+3. **Configura el vault:**
+   - Edita `para_config.json` y pon la ruta de tu vault de Obsidian en `vault_path`.
+4. **Lanza el sistema:**
+   ```bash
+   ./launch_para.sh
+   ```
+5. **(Opcional) Lanza el dashboard backend/seguimiento:**
+   ```bash
+   ./launch_dashboard.sh
+   ```
+6. **Abre el dashboard en tu navegador:**
+   - http://localhost:7860 (o el puerto configurado)
+
+---
+
+# 📦 PARA System with ChromaDB
+
+Sistema completo para organizar automáticamente tu vault de Obsidian usando la metodología PARA con IA local y base de datos vectorial.
+
+## 🚀 Instalación
+
+```bash
+./install_para_system.sh
+```
+
+## 🎯 Uso
+
+### Lanzar el Dashboard
+```bash
+./launch_para.sh
+```
+
+### Organización Manual
+```bash
+source venv/bin/activate
+python para_organizer.py
+```
+
+## 📦 Estructura PARA
+
+- **00-inbox**: Elementos sin procesar
+- **01-projects**: Proyectos activos
+- **02-areas**: Responsabilidades continuas
+- **03-resources**: Materiales de referencia
+- **04-archive**: Proyectos completados
+
+## 🔍 Características
+
+- IA Local con Ollama
+- Base de datos vectorial ChromaDB
+- Dashboard web en tiempo real
+- Búsqueda semántica
+- Backup automático
+- Monitoreo de progreso
+
+## 🌐 Dashboard
+
+Abre http://localhost:7860 en tu navegador
+
+## 🛡️ Seguridad
+
+- Backup automático
+- Modo dry-run por defecto
+- Validación de IA
+- Manejo de errores robusto
+
+---
+
+**¡Organiza tu conocimiento con IA! 🧠✨**
 
 ## Sobre PARA (Método de Tiago Forte)
 
@@ -183,6 +264,192 @@ python para_cli.py folder-feedback --stats --days 60
 
 ---
 
+## 📊 Log Manager Inteligente
+
+El **Log Manager Inteligente** es un sistema avanzado que analiza automáticamente los logs del sistema, resuelve problemas comunes y mantiene métricas de resolución. Proporciona una gestión proactiva de errores y eventos del sistema.
+
+### Características del Log Manager
+
+- **Análisis Automático**: Parsea y analiza logs automáticamente
+- **Auto-Resolución**: Resuelve problemas comunes sin intervención manual
+- **Métricas de Resolución**: Tiempo promedio, tasas de éxito, problemas pendientes
+- **Escalación Inteligente**: Identifica problemas complejos que requieren atención manual
+- **Base de Datos de Logs**: Almacena logs procesados con estado y resolución
+- **Patrones de Problemas**: Detecta patrones recurrentes y aplica soluciones
+
+### Comandos del Log Manager
+
+```bash
+# Analizar logs automáticamente
+python para_cli.py logs --analyze
+
+# Mostrar logs pendientes
+python para_cli.py logs --pending
+
+# Ver métricas de logs
+python para_cli.py logs --metrics
+
+# Marcar log como resuelto
+python para_cli.py logs --resolve 123 --resolution "Problema solucionado"
+
+# Actividad reciente (24h por defecto)
+python para_cli.py logs --recent 48
+```
+
+### Problemas Auto-Resueltos
+
+El Log Manager puede resolver automáticamente:
+
+- **Modelos de IA no encontrados**: Sugiere comandos para descargar modelos
+- **Errores de conexión Ollama**: Indica cómo iniciar el servicio
+- **Problemas de ChromaDB**: Verifica configuración de base de datos
+- **Errores de permisos**: Sugiere verificar permisos de escritura
+- **Problemas de backup**: Verifica espacio en disco y permisos
+- **Errores de clasificación**: Sugiere verificar contenido y modelo
+- **Problemas de JSON**: Indica problemas de formato en respuestas de IA
+
+### Métricas del Log Manager
+
+- **Total de Logs**: Número total de entradas procesadas
+- **Auto-Resueltos**: Problemas resueltos automáticamente
+- **Manual**: Problemas resueltos manualmente
+- **Pendientes**: Problemas que requieren atención
+- **Escalados**: Problemas complejos que requieren intervención
+- **Tiempo Promedio**: Tiempo promedio de resolución en minutos
+
+---
+
+## 🚀 Backend Dashboard Unificado
+
+El **Backend Dashboard Unificado** es una interfaz web completa que unifica toda la información del sistema PARA en una sola vista. Proporciona métricas en tiempo real, análisis avanzados y gestión integral del sistema.
+
+### Características del Dashboard
+
+- **Dashboard Principal**: Vista general con métricas clave y alertas
+- **Logs & Errores**: Gestión visual de logs con filtros y resolución
+- **Sistema de Aprendizaje**: Métricas de aprendizaje y progreso
+- **ChromaDB Analytics**: Análisis detallado de la base de datos semántica
+- **Doctor System**: Diagnóstico y salud del sistema
+- **Métricas de Usuario**: Analytics de uso y rendimiento
+- **Configuración**: Gestión visual de configuración del sistema
+
+### Lanzamiento del Dashboard
+
+```bash
+# Lanzamiento básico (puerto 8501)
+python para_cli.py dashboard
+
+# Puerto personalizado
+python para_cli.py dashboard --port 8502
+
+# Host personalizado
+python para_cli.py dashboard --host 0.0.0.0
+
+# Sin abrir navegador automáticamente
+python para_cli.py dashboard --open false
+
+# Script de lanzamiento directo
+./launch_dashboard.sh
+```
+
+### Secciones del Dashboard
+
+#### 🏠 Dashboard Principal
+- Métricas de logs en tiempo real
+- Progreso del sistema de aprendizaje
+- Estado de servicios del sistema
+- Alertas y recomendaciones
+
+#### 📊 Logs & Errores
+- Filtros por nivel, tiempo y estado
+- Análisis automático de logs
+- Gestión de logs pendientes
+- Métricas detalladas de resolución
+
+#### 🧠 Sistema de Aprendizaje
+- Métricas de precisión y progreso
+- Historial de feedback
+- Acciones de aprendizaje
+- Reportes de mejora
+
+#### 🔍 ChromaDB Analytics
+- Estadísticas de la base de datos
+- Análisis de collections
+- Documentos y embeddings
+- Patrones semánticos
+
+#### 💊 Doctor System
+- Diagnóstico automático del sistema
+- Verificación de servicios
+- Problemas conocidos y soluciones
+- Reportes de salud
+
+#### 📈 Métricas de Usuario
+- Notas procesadas
+- Tiempo de uso
+- Clasificaciones realizadas
+- Precisión del sistema
+
+#### ⚙️ Configuración del Sistema
+- Configuración actual
+- Opciones de gestión
+- Recarga de configuración
+- Guardado de cambios
+
+### Requisitos del Dashboard
+
+```bash
+# Instalar dependencias
+pip install streamlit plotly
+
+# Verificar instalación
+python -c "import streamlit, plotly; print('✅ Dependencias instaladas')"
+```
+
+---
+
+## 💊 Doctor System Avanzado
+
+El **Doctor System Avanzado** es una evolución del doctor original que incluye análisis automático de logs y reparación inteligente. Proporciona diagnóstico completo y proactivo del sistema.
+
+### Comandos del Doctor Avanzado
+
+```bash
+# Diagnóstico completo con análisis de logs
+python para_cli.py doctor-advanced
+
+# Solo análisis de logs
+python para_cli.py doctor-advanced --log-analysis --health false
+
+# Solo verificación de salud
+python para_cli.py doctor-advanced --log-analysis false --health
+
+# Con auto-reparación
+python para_cli.py doctor-advanced --auto-fix
+
+# Generar reporte de salud
+python para_cli.py doctor-advanced --report
+```
+
+### Servicios Verificados
+
+- **ChromaDB**: Conexión y operaciones de base de datos
+- **Learning System**: Sistema de aprendizaje y métricas
+- **Log Manager**: Gestión de logs y análisis
+- **Database**: Base de datos principal del sistema
+
+### Reportes de Salud
+
+El doctor genera reportes completos que incluyen:
+
+- Estado de todos los servicios
+- Métricas de logs y actividad reciente
+- Recomendaciones de mejora
+- Timestamp de verificación
+- Análisis de tendencias
+
+---
+
 ## Personalización de la IA: Instrucciones al Prompt
 
 Puedes darle instrucciones personalizadas a la IA usando el parámetro `--prompt` en la CLI. Ejemplo:
@@ -354,5 +621,29 @@ Toda la documentación técnica, arquitectónica y de sistemas avanzados se encu
 - `ANALISIS_COMPLETO_OBSIDIAN.md`: Análisis completo de notas y vault.
 
 Consulta estos archivos en `docs/` para detalles, ejemplos y arquitectura.
+
+---
+
+## Comando principal: Reclasificación total
+
+### `reclassify-all`
+
+Reclasifica todas las notas del vault usando el sistema híbrido (ChromaDB + IA + aprendizaje automático). Las notas diarias vacías o genéricas se archivan automáticamente. Al finalizar, puedes ver la evolución y mejora en el panel de aprendizaje.
+
+**Uso:**
+
+```bash
+python para_cli.py reclassify-all --vault /ruta/al/vault --execute
+```
+
+- Reclasifica todas las notas del vault, sin importar en qué carpeta estén.
+- Aprovecha el sistema de aprendizaje para mejorar la precisión respecto a la clasificación inicial.
+- Archiva automáticamente las notas diarias vacías o con contenido genérico.
+- Realiza backup automático antes de ejecutar.
+- Al finalizar, puedes abrir el panel de aprendizaje:
+
+```bash
+python para_cli.py learn --dashboard
+```
 
 ---

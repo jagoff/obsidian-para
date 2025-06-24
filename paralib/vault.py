@@ -236,7 +236,7 @@ def _detect_vault_automatically() -> Path | None:
     # Selección automática si solo hay un vault
     if len(potential_vaults) == 1:
         vault = potential_vaults[0]
-        console.print(f"[green]🗄️ Vault detectado automáticamente: [cyan]{shorten_path(vault)}[/cyan] (seleccionado automáticamente)")
+        console.print(format_vault_found_message(vault, color='green') + " (seleccionado automáticamente)")
         console.print("[dim]─────────────────────────────────────────────── 📂[/dim]")
         console.print(f"[dim]Ruta completa: {vault}[/dim]")
         return vault
@@ -270,7 +270,7 @@ def _detect_vault_automatically() -> Path | None:
             console.print("[cyan]👋 Saliste del flujo de selección de vault. ¡Hasta la próxima![/cyan]")
             import sys; sys.exit(0)
         selected_vault = Path(selected_path_str)
-        console.print(f"[green]✅ Vault seleccionado: [cyan]{shorten_path(selected_vault)}[/cyan][/green]")
+        console.print(format_vault_found_message(selected_vault, color='green') + " [bold](seleccionado)[/bold]")
         console.print("[dim]─────────────────────────────────────────────── 📂[/dim]")
         console.print(f"[dim]Ruta completa: {selected_vault}[/dim]")
         return selected_vault
@@ -287,14 +287,14 @@ def _detect_vault_automatically() -> Path | None:
                 import sys; sys.exit(0)
             idx = int(idx)
             selected_vault = potential_vaults[idx-1]
-            console.print(f"[green]✅ Vault seleccionado: [cyan]{shorten_path(selected_vault)}[/cyan][/green]")
+            console.print(format_vault_found_message(selected_vault, color='green') + " [bold](seleccionado)[/bold]")
             console.print("[dim]─────────────────────────────────────────────── 📂[/dim]")
             console.print(f"[dim]Ruta completa: {selected_vault}[/dim]")
             return selected_vault
         except (ValueError, IndexError):
             console.print("[yellow]Selección inválida. Usando el primer vault encontrado.[/yellow]")
             selected_vault = potential_vaults[0]
-            console.print(f"[green]✅ Vault seleccionado: [cyan]{shorten_path(selected_vault)}[/cyan][/green]")
+            console.print(format_vault_found_message(selected_vault, color='green') + " [bold](seleccionado)[/bold]")
             console.print("[dim]─────────────────────────────────────────────── 📂[/dim]")
             console.print(f"[dim]Ruta completa: {selected_vault}[/dim]")
             return selected_vault
@@ -309,7 +309,7 @@ def find_vault(vault_path: str = None, force_cache: bool = False) -> Path | None
     if vault_path:
         path = Path(vault_path).expanduser().resolve()
         if path.is_dir() and (path / '.obsidian').is_dir():
-            console.print(f"[green]🗄️ Vault especificado por parámetro: [cyan]{shorten_path(path)}[/cyan]")
+            console.print(format_vault_found_message(path, color='green') + " [bold](por parámetro)[/bold]")
             return path
         else:
             console.print(f"[red]❌ La ruta especificada no es un directorio válido de vault: [yellow]{vault_path}[/yellow]")
@@ -321,7 +321,7 @@ def find_vault(vault_path: str = None, force_cache: bool = False) -> Path | None
                 data = json.load(f)
             cached_path = Path(data.get('vault_path', '')).expanduser().resolve()
             if cached_path.is_dir() and (cached_path / '.obsidian').is_dir():
-                console.print(f"[green]🗄️ Vault en caché detectado y seleccionado automáticamente: [cyan]{shorten_path(cached_path)}[/cyan]")
+                console.print(format_vault_found_message(cached_path, color='green') + " [bold](en caché)[/bold]")
                 return cached_path
         except Exception as e:
             logger.warning(f"Error al leer caché de vault: {e}")
@@ -585,4 +585,46 @@ def gd_shorten_path(path):
         if idx > 0 and parts[idx-1] == 'Mi unidad':
             return 'Mi unidad/Obsidian'
         return 'Obsidian'
-    return parts[-1] 
+    return parts[-1]
+
+def project_follow_up(summary: str, roadmap: str, checklist: list[str]):
+    """Crea o actualiza una nota de seguimiento del proyecto en 00-Inbox/para_cli.md del vault activo."""
+    vault = find_vault()
+    if not vault:
+        from rich.console import Console
+        console = Console()
+        console.print("[red]❌ No se encontró ningún vault para guardar el project follow up.[/red]")
+        return False
+    inbox = vault / "00-Inbox"
+    inbox.mkdir(exist_ok=True)
+    note_path = inbox / "para_cli.md"
+    content = f"# PARA CLI - Project Follow Up\n\n## Resumen\n{summary}\n\n## Roadmap\n{roadmap}\n\n## Checklist\n" + "\n".join([f"- [ ] {item}" for item in checklist])
+    with open(note_path, "w", encoding="utf-8") as f:
+        f.write(content)
+    from rich.console import Console
+    console = Console()
+    console.print(f"[green]✅ Project follow up actualizado en {note_path}[/green]")
+    return True
+
+if __name__ == "__main__":
+    summary = (
+        "La CLI PARA ahora integra AI para interpretación de comandos en lenguaje natural, "
+        "un sistema robusto de plugins, y un Vault Manager que garantiza que nunca haya errores abruptos por vault no configurado. "
+        "Todos los comandos y plugins consultan el Vault Manager antes de operar, guiando al usuario si es necesario. "
+        "Se ha añadido un sistema de project follow up automático en 00-Inbox/para_cli.md."
+    )
+    roadmap = (
+        "- Mejorar la experiencia AI con feedback continuo\n"
+        "- Añadir más plugins y comandos inteligentes\n"
+        "- Integrar métricas de uso y aprendizaje en el dashboard\n"
+        "- Mejorar la documentación y ejemplos de uso\n"
+        "- Automatizar tests de integración para plugins y AI"
+    )
+    checklist = [
+        "Integración total del Vault Manager en CLI y plugins",
+        "Flujo AI robusto y transparente con confirmación",
+        "Sistema de plugins sin conflictos de comandos",
+        "Mensajes y logs amigables en todos los flujos",
+        "Project follow up automático en 00-Inbox/para_cli.md"
+    ]
+    project_follow_up(summary, roadmap, checklist) 

@@ -1112,3 +1112,116 @@ class PARA_Learning_System:
             })
         
         return suggestions
+    
+    def get_metrics(self) -> Dict[str, Any]:
+        """Obtiene todas las métricas disponibles del sistema de aprendizaje."""
+        # Calcular métricas actuales
+        current_metrics = self._calculate_current_metrics()
+        
+        # Obtener progreso de aprendizaje
+        progress = self.get_learning_progress(days=30)
+        
+        # Obtener estadísticas de creación de carpetas
+        folder_stats = self.get_folder_creation_stats(days=30)
+        
+        # Crear snapshot completo
+        snapshot = self.create_learning_snapshot()
+        
+        # Combinar todas las métricas
+        all_metrics = {
+            # Métricas principales
+            'total_classifications': current_metrics['total_classifications'],
+            'accuracy_rate': current_metrics['accuracy_rate'],
+            'confidence_correlation': current_metrics['confidence_correlation'],
+            'learning_velocity': current_metrics['learning_velocity'],
+            'improvement_score': current_metrics['improvement_score'],
+            'category_balance': current_metrics['category_balance'],
+            'semantic_coherence': current_metrics['semantic_coherence'],
+            'user_satisfaction': current_metrics['user_satisfaction'],
+            'system_adaptability': current_metrics['system_adaptability'],
+            
+            # Métricas de progreso
+            'progress_period_days': progress.get('period_days', 30),
+            'total_snapshots': progress.get('total_snapshots', 0),
+            'overall_improvement': progress.get('overall_improvement', {}),
+            
+            # Métricas de carpetas
+            'total_folders_created': folder_stats.get('total_folders', 0),
+            'folder_approval_rate': folder_stats.get('approval_rate', 0),
+            'folder_category_distribution': folder_stats.get('category_distribution', {}),
+            'folder_method_performance': folder_stats.get('method_performance', {}),
+            
+            # Métricas de modelo
+            'model_performance': snapshot.get('model_performance', {}),
+            'category_performance': snapshot.get('category_performance', {}),
+            
+            # Insights y sugerencias
+            'learning_insights': snapshot.get('learning_insights', []),
+            'improvement_suggestions': snapshot.get('improvement_suggestions', []),
+            'folder_learning_insights': folder_stats.get('learning_insights', []),
+            
+            # Timestamp
+            'last_updated': current_metrics['timestamp']
+        }
+        
+        return all_metrics
+    
+    def get_cli_evolution_score_trend(self, days: int = 30) -> Dict[str, Any]:
+        """
+        Devuelve la evolución temporal del 'Evolución CLI Score' (0-100) y los factores individuales para cada snapshot.
+        El score pondera: precisión (40%), score de mejora (20%), velocidad de aprendizaje (15%), satisfacción usuario (15%), adaptabilidad (10%).
+        """
+        conn = sqlite3.connect(self.learning_db_path)
+        cursor = conn.cursor()
+        since = (datetime.utcnow() - timedelta(days=days)).isoformat()
+        cursor.execute(
+            """
+            SELECT timestamp, accuracy_rate, improvement_score, learning_velocity, user_satisfaction, system_adaptability
+            FROM learning_metrics
+            WHERE timestamp >= ?
+            ORDER BY timestamp ASC
+            """,
+            (since,)
+        )
+        rows = cursor.fetchall()
+        conn.close()
+        if not rows:
+            return {'error': 'No hay datos de evolución CLI en el período especificado'}
+        trend = []
+        for row in rows:
+            ts, accuracy, improvement, velocity, satisfaction, adaptability = row
+            # Normalización defensiva
+            accuracy = float(accuracy or 0)
+            improvement = float(improvement or 0)
+            velocity = float(velocity or 0)
+            satisfaction = float(satisfaction or 0)
+            adaptability = float(adaptability or 0)
+            # Score ponderado (ajustar pesos si se requiere)
+            score = (
+                0.40 * accuracy +
+                0.20 * improvement +
+                0.15 * velocity * 100 +  # velocity suele estar en 0-1
+                0.15 * satisfaction * 100 +  # satisfacción suele estar en 0-1
+                0.10 * adaptability * 100  # adaptabilidad suele estar en 0-1
+            )
+            # Clamp entre 0 y 100
+            score = max(0, min(100, score))
+            trend.append({
+                'timestamp': ts,
+                'cli_evolution_score': score,
+                'accuracy': accuracy,
+                'improvement': improvement,
+                'velocity': velocity,
+                'satisfaction': satisfaction,
+                'adaptability': adaptability
+            })
+        return {
+            'trend': trend,
+            'factor_weights': {
+                'accuracy': 0.40,
+                'improvement': 0.20,
+                'velocity': 0.15,
+                'satisfaction': 0.15,
+                'adaptability': 0.10
+            }
+        }

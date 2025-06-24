@@ -14,3 +14,10 @@ from .similarity import find_similar_classification, register_project_alias
 from .finetune_manager import *
 from .analyze_manager import *
 from .classification_log import *
+from .config import *
+from .learning_system import *
+from .log_manager import *
+from .plugin_system import *
+
+__version__ = "2.0.0"
+__author__ = "PARA Team"

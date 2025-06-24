@@ -9,13 +9,13 @@ from chromadb_wrapper import ChromaDBWrapper
 import sys
 import subprocess
 import re
+import os
+from pathlib import Path
 
 # --- DETECTAR DIRECTORIO DEL SCRIPT ---
-import os
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # --- LOGGING ---
-import logging
 LOG_DIR = os.path.join(SCRIPT_DIR, '../logs')
 os.makedirs(LOG_DIR, exist_ok=True)
 LOG_PATH = os.path.join(LOG_DIR, 'chromadb_admin.log')
@@ -213,6 +213,50 @@ def listar_bases_chromadb():
 
 bases_disponibles = listar_bases_chromadb()
 
+# --- INTEGRACIÓN SISTEMA DE APRENDIZAJE ---
+sys.path.append(os.path.abspath(os.path.join(SCRIPT_DIR, '..')))
+from paralib.learning_system import PARA_Learning_System
+from paralib.db import ChromaPARADatabase
+
+# Inicializar sistema de aprendizaje
+vault_path = config.get('vault_path', os.path.expanduser('~/Library/CloudStorage/GoogleDrive-fernandoferrari@gmail.com/Mi unidad/Obsidian'))
+learning_db = ChromaPARADatabase(db_path=db_path)
+learning_system = PARA_Learning_System(learning_db, Path(vault_path))
+
+def grafico_evolucion_cli(days=30):
+    data = learning_system.get_cli_evolution_score_trend(days)
+    if 'error' in data:
+        return dbc.Alert(data['error'], color='warning')
+    trend = data['trend']
+    if not trend:
+        return dbc.Alert('No hay datos suficientes para mostrar la evolución de la CLI.', color='warning')
+    df = pd.DataFrame(trend)
+    fig = px.line(
+        df,
+        x='timestamp',
+        y='cli_evolution_score',
+        title='📈 Evolución CLI: Aprendizaje y Avance',
+        markers=True,
+        custom_data=['accuracy', 'improvement', 'velocity', 'satisfaction', 'adaptability']
+    )
+    fig.update_traces(
+        hovertemplate='<b>Fecha:</b> %{x}<br>' +
+                      '<b>Score CLI:</b> %{y:.1f}<br>' +
+                      '<b>Precisión:</b> %{customdata[0]:.1f}%<br>' +
+                      '<b>Mejora:</b> %{customdata[1]:.2f}<br>' +
+                      '<b>Velocidad:</b> %{customdata[2]:.2f}<br>' +
+                      '<b>Satisfacción:</b> %{customdata[3]:.2f}<br>' +
+                      '<b>Adaptabilidad:</b> %{customdata[4]:.2f}<br>'
+    )
+    fig.update_layout(
+        xaxis_title='Fecha',
+        yaxis_title='Evolución CLI Score (0-100)',
+        height=400,
+        template='plotly_dark',
+        showlegend=False
+    )
+    return dcc.Graph(figure=fig)
+
 # --- LAYOUT ---
 app.layout = dbc.Container([
     html.H1("🗂️ ChromaDB Admin Dashboard", className="mt-4 mb-2 text-center"),
@@ -305,6 +349,7 @@ def update_dashboard(n_clicks, db_selected, db_state):
                     html.H6("Fixes automáticos aplicados:"),
                     html.Ul([html.Li(fix) for fix in analizar_y_autofix_log()])
                 ]),
+                dbc.Tab(label="Evolución CLI", tab_id="evolucion_cli", children=[html.Br(), grafico_evolucion_cli()]),
             ], id="tabs", active_tab="notas", className="mb-4"),
         ]),
         dbc.Alert("Datos recargados correctamente.", color="success", className="mb-2") if n_clicks else ""

@@ -77,6 +77,44 @@ def create_learning_dashboard(vault_path: str):
     with col4:
         display_improvement_card(current_snapshot['metrics'])
     
+    # --- GRAFICA DE EVOLUCION CLI ---
+    st.markdown("---")
+    st.subheader("🚀 Evolución CLI: Aprendizaje y Avance Profesional")
+    cli_evolution = learning_system.get_cli_evolution_score_trend(days)
+    if 'error' in cli_evolution:
+        st.warning(cli_evolution['error'])
+    else:
+        trend = cli_evolution['trend']
+        if not trend:
+            st.info("No hay datos suficientes para mostrar la evolución de la CLI.")
+        else:
+            df_cli = pd.DataFrame(trend)
+            fig_cli = px.line(
+                df_cli,
+                x='timestamp',
+                y='cli_evolution_score',
+                title='Evolución CLI (Score 0-100)',
+                markers=True,
+                custom_data=['accuracy', 'improvement', 'velocity', 'satisfaction', 'adaptability']
+            )
+            fig_cli.update_traces(
+                hovertemplate='<b>Fecha:</b> %{x}<br>' +
+                              '<b>Score CLI:</b> %{y:.1f}<br>' +
+                              '<b>Precisión:</b> %{customdata[0]:.1f}%<br>' +
+                              '<b>Mejora:</b> %{customdata[1]:.2f}<br>' +
+                              '<b>Velocidad:</b> %{customdata[2]:.2f}<br>' +
+                              '<b>Satisfacción:</b> %{customdata[3]:.2f}<br>' +
+                              '<b>Adaptabilidad:</b> %{customdata[4]:.2f}<br>'
+            )
+            fig_cli.update_layout(
+                xaxis_title='Fecha',
+                yaxis_title='Evolución CLI Score (0-100)',
+                height=400,
+                template='plotly_dark',
+                showlegend=False
+            )
+            st.plotly_chart(fig_cli, use_container_width=True)
+    
     # Gráficos principales
     st.markdown("---")
     st.subheader("📈 Tendencias de Aprendizaje")

@@ -1,7 +1,7 @@
 {
   // Puedes dejar vault_path vacío para detección automática (incluye Google Drive, iCloud, etc.)
   // Si tu vault está en la nube y no se detecta, especifica la ruta completa aquí.
-  "vault_path": "",
+  "vault_path": "/Users/fernandoferrari/Library/CloudStorage/GoogleDrive-fernandoferrari@gmail.com/Mi unidad/Obsidian/01-Projects",
   "chroma_db_path": "./para_chroma_db",
   "ollama_host": "http://localhost:11434",
   "ollama_model": "llama3.2:3b",

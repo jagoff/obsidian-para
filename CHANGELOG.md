@@ -34,4 +34,12 @@
 
 ## [1.x.x] - 2024-05-XX
 ### Added
-- Primeras versiones, clasificación básica, reglas manuales. 
+- Primeras versiones, clasificación básica, reglas manuales.
+
+## [NUEVO] Comando principal: reclassify-all
+
+- Se añade el comando principal `reclassify-all` al CLI.
+- Permite reclasificar todas las notas del vault usando el sistema híbrido (ChromaDB + IA + aprendizaje automático).
+- Archiva automáticamente las notas diarias vacías o genéricas.
+- Realiza backup automático antes de ejecutar.
+- Permite visualizar la evolución y mejora en el panel de aprendizaje. 
