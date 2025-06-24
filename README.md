@@ -1,55 +1,18 @@
-# PARA System with ChromaDB
-
-## 🚀 Portabilidad y Setup en nueva Mac
-
-1. **Clona el repositorio:**
-   ```bash
-   git clone <URL_DEL_REPO>
-   cd obsidian-para
-   ```
-2. **Instala el sistema:**
-   ```bash
-   ./install_para_system.sh
-   ```
-3. **Configura el vault:**
-   - Edita `para_config.json` y pon la ruta de tu vault de Obsidian en `vault_path`.
-4. **Lanza el sistema:**
-   ```bash
-   ./launch_para.sh
-   ```
-5. **(Opcional) Lanza el dashboard backend/seguimiento:**
-   ```bash
-   ./launch_dashboard.sh
-   ```
-6. **Abre el dashboard en tu navegador:**
-   - http://localhost:7860 (o el puerto configurado)
-
----
-
-# 📦 PARA System with ChromaDB
+# 🗂️ PARA System with ChromaDB
 
 Sistema completo para organizar automáticamente tu vault de Obsidian usando la metodología PARA con IA local y base de datos vectorial.
 
 ## 🚀 Instalación
 
 ```bash
-./install_para_system.sh
+python3 para.py
 ```
 
 ## 🎯 Uso
 
-### Lanzar el Dashboard
-```bash
-./launch_para.sh
-```
+Al ejecutar el script, verás un menú interactivo con opciones para instalar, lanzar el dashboard, la CLI, hacer backups y más.
 
-### Organización Manual
-```bash
-source venv/bin/activate
-python para_organizer.py
-```
-
-## 📦 Estructura PARA
+## 🧠 Estructura PARA
 
 - **00-inbox**: Elementos sin procesar
 - **01-projects**: Proyectos activos
@@ -68,7 +31,7 @@ python para_organizer.py
 
 ## 🌐 Dashboard
 
-Abre http://localhost:7860 en tu navegador
+Abre http://localhost:8501 en tu navegador tras lanzar el dashboard desde el menú.
 
 ## 🛡️ Seguridad
 
@@ -79,7 +42,7 @@ Abre http://localhost:7860 en tu navegador
 
 ---
 
-**¡Organiza tu conocimiento con IA! 🧠✨**
+**¡Organiza tu conocimiento con IA! 🤖✨**
 
 ## Sobre PARA (Método de Tiago Forte)
 
