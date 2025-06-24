@@ -182,7 +182,7 @@ def analyze_and_fix_log():
             print(f)
     # --- Bugs resueltos (solo una línea por bug, al final) ---
     if chroma_db:
-        resolved = chroma_db.get_all_notes()
+        resolved = chroma_db.get_all_notes_metadata()
         if resolved:
             unique_bugs = {}
             for note in resolved:

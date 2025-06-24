@@ -13,4 +13,4 @@ from .ui import run_monitor_dashboard, select_folders_to_exclude
 from .similarity import find_similar_classification, register_project_alias
 from .finetune_manager import *
 from .analyze_manager import *
-from .classification_log import * 
+from .classification_log import *

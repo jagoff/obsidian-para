@@ -6,7 +6,7 @@ Módulo centralizado de logging para PARA System.
 import logging
 import os
 from logging.handlers import RotatingFileHandler
-from rich.logging import RichHandler
+# from rich.logging import RichHandler  # Solo usar en módulos interactivos
 
 LOG_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'logs')
 LOG_FILE = os.path.join(LOG_DIR, 'para.log')
@@ -28,17 +28,10 @@ file_formatter = logging.Formatter(
 file_handler.setFormatter(file_formatter)
 file_handler.setLevel(logging.DEBUG)
 
-# Handler para consola enriquecida
-console_handler = RichHandler(rich_tracebacks=True, show_time=False, show_level=True, show_path=True)
-console_handler.setLevel(logging.INFO)
+# Solo log a archivo para la CLI y scripts por defecto
+logger.handlers.clear()
+logger.addHandler(file_handler)
+logger.propagate = False
 
-# Evitar duplicados
-if not logger.hasHandlers():
-    logger.addHandler(file_handler)
-    logger.addHandler(console_handler)
-else:
-    logger.handlers.clear()
-    logger.addHandler(file_handler)
-    logger.addHandler(console_handler)
-
-logger.propagate = False 
+# NOTA: Si un módulo interactivo (dashboard, UI, etc.) necesita logs en consola,
+# debe crear su propio logger local con RichHandler o similar. 

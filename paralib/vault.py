@@ -43,6 +43,11 @@ import yaml
 import re
 import signal
 from contextlib import contextmanager
+import sys
+import time
+import threading
+from paralib.logger import logger  # <--- Añadido para logging centralizado
+from paralib.utils import format_vault_found_message, shorten_path
 
 console = Console()
 CACHE_FILE = Path(".para_cache.json")
@@ -71,19 +76,6 @@ def _get_common_vault_locations() -> list[Path]:
                 locations.append(icloud_obsidian_path)
     return locations
 
-def shorten_path(path: Path, max_len: int = 70) -> str:
-    """Acorta una ruta para mostrarla de forma legible."""
-    path_str = str(path.resolve())
-    home = str(Path.home())
-    if path_str.startswith(home):
-        path_str = "~" + path_str[len(home):]
-    if len(path_str) <= max_len:
-        return path_str
-    parts = path_str.split(os.sep)
-    if len(parts) > 4:
-        return os.path.join(parts[0], parts[1], "...", *parts[-2:])
-    return path_str
-
 def _load_vault_path_from_cache() -> Path | None:
     """Carga la ruta del vault desde un archivo de caché."""
     if CACHE_FILE.exists():
@@ -93,7 +85,8 @@ def _load_vault_path_from_cache() -> Path | None:
                 path = Path(data.get("vault_path"))
                 if path.is_dir():
                     return path
-        except (json.JSONDecodeError, KeyError):
+        except (json.JSONDecodeError, KeyError) as e:
+            logger.warning(f"Error al leer caché de vault: {e}")
             pass
     return None
 
@@ -145,56 +138,39 @@ def _detect_vault_automatically() -> Path | None:
         results = []
         is_cloud = is_cloud_path(path)
         is_google_drive = 'googledrive' in str(path).lower()
+        exclude_dirs = {'.Encrypted', '.Trash', '.file-revisions-by-id', '.shortcut-targets-by-id', '.DS_Store', '.TemporaryItems', '.Spotlight-V100', '.fseventsd', '.DocumentRevisions-V100', '.apdisk'}
         if is_google_drive:
             timeout_seconds = 20
-            search_depth = 5  # Permitir profundidad suficiente para 'Mi unidad/Obsidian'
+            search_depth = 5
         elif is_cloud:
             timeout_seconds = 15
             search_depth = 2
         else:
             timeout_seconds = 5
             search_depth = max_depth
-        if is_cloud:
-            cloud_type = "Google Drive" if is_google_drive else "nube"
-            console.print(f"[dim]Buscando en {cloud_type} (timeout: {timeout_seconds}s, profundidad: {search_depth}): {shorten_path(path)}[/dim]")
+        def recursive_find_obsidian(base, depth):
+            if depth < 0:
+                return
+            try:
+                for entry in base.iterdir():
+                    if entry.is_dir() and entry.name not in exclude_dirs and not entry.name.startswith('.'):
+                        if (entry / '.obsidian').is_dir():
+                            results.append(entry / '.obsidian')
+                        recursive_find_obsidian(entry, depth-1)
+            except Exception as e:
+                logger.warning(f"Error al iterar en {base}: {e}")
+                pass
         try:
             with timeout_handler(timeout_seconds):
-                if is_google_drive:
-                    # Usar rglob manual con control de profundidad
-                    def rglob_depth(base, pat, depth):
-                        if depth < 0:
-                            return
-                        try:
-                            for entry in base.iterdir():
-                                if entry.is_dir():
-                                    if entry.name == pat:
-                                        results.append(entry)
-                                        console.print(f"[green]✓ Vault encontrado en {shorten_path(path)}: {shorten_path(entry.parent)}[/green]")
-                                    else:
-                                        rglob_depth(entry, pat, depth-1)
-                        except Exception as e:
-                            console.print(f"[dim]No se pudo acceder a {base}: {e}[/dim]")
-                    rglob_depth(path, ".obsidian", search_depth)
-                else:
-                    # Búsqueda limitada por profundidad para otras rutas
-                    for depth in range(search_depth + 1):
-                        if depth == 0:
-                            search_path = path
-                        else:
-                            search_path = path / ("*/" * depth)
-                        try:
-                            for item in search_path.glob(pattern if depth == 0 else "*/" + pattern):
-                                if item.is_dir() and item.name == ".obsidian":
-                                    results.append(item)
-                                    console.print(f"[green]✓ Vault encontrado en {shorten_path(path)}: {shorten_path(item.parent)}[/green]")
-                                    break
-                        except (PermissionError, OSError) as e:
-                            console.print(f"[dim]No se pudo acceder a {search_path}: {e}[/dim]")
-                            continue
+                recursive_find_obsidian(path, search_depth)
         except TimeoutError:
-            console.print(f"[dim]Timeout al buscar en {shorten_path(path)} (después de {timeout_seconds}s)[/dim]")
+            print(' ' * 80, end='\r', flush=True)
+            logger.warning(f"Timeout al buscar en {shorten_path(path, 40)}")
+            console.print(f"[yellow]⏱️ Timeout al buscar en {shorten_path(path, 40)}[/yellow]")
         except Exception as e:
-            console.print(f"[dim]Error al buscar en {shorten_path(path)}: {e}[/dim]")
+            print(' ' * 80, end='\r', flush=True)
+            logger.error(f"Error al buscar en {shorten_path(path, 40)}: {e}", exc_info=True)
+            console.print(f"[red]Error al buscar en {shorten_path(path, 40)}: {e}[/red]")
         return results
 
     potential_vaults = []
@@ -202,90 +178,162 @@ def _detect_vault_automatically() -> Path | None:
     # Usar la función dinámica para obtener las ubicaciones base
     search_locations = _get_common_vault_locations()
     
-    # Buscar en todas las ubicaciones, priorizando locales pero incluyendo nube
-    for location in search_locations:
-        if not location.is_dir():
-            continue
-        
-        is_cloud = is_cloud_path(location)
-        location_type = "nube" if is_cloud else "local"
-        console.print(f"[dim]Buscando vaults en {location_type}: {shorten_path(location)}[/dim]")
-        
-        obsidian_dirs = safe_rglob(location, ".obsidian")
-        
-        for obsidian_dir in obsidian_dirs:
-            vault_path = obsidian_dir.parent
-            if vault_path not in potential_vaults:
-                potential_vaults.append(vault_path)
-                console.print(f"[green]✓ Vault encontrado: {shorten_path(vault_path)}[/green]")
+    spinner_frames = ['|', '/', '-', '\\']
+    spinner_idx = [0]
+    searching = [True]
+    current_path = [""]
+    def spinner_thread():
+        while searching[0]:
+            short_path = shorten_path(current_path[0], 40)
+            spinner = spinner_frames[spinner_idx[0] % len(spinner_frames)]
+            # Línea de progreso solo con print plano
+            print(f"Buscando vault: {short_path} {spinner}   ", end='\r', flush=True)
+            spinner_idx[0] += 1
+            time.sleep(0.12)
+    t = threading.Thread(target=spinner_thread)
+    t.start()
+    try:
+        for location in search_locations:
+            if not location.is_dir():
+                continue
+            current_path[0] = location
+            is_cloud = is_cloud_path(location)
+            location_type = "nube" if is_cloud else "local"
+            # Línea de progreso animada y coloreada
+            short_path = shorten_path(location, max_len=40)
+            obsidian_dirs = safe_rglob(location, ".obsidian")
+            # Limpiar la línea de progreso después de cada búsqueda
+            print(' ' * 80, end='\r', flush=True)
+            for obsidian_dir in obsidian_dirs:
+                vault_path = obsidian_dir.parent
+                if vault_path not in potential_vaults:
+                    potential_vaults.append(vault_path)
+                    console.print(format_vault_found_message(vault_path))
+            # Pequeña pausa para animación si hay muchas rutas
+            time.sleep(0.08)
+    finally:
+        searching[0] = False
+        t.join()
+        print(' ' * 80, end='\r', flush=True)
+
+    # Validar y deduplicar solo vaults reales
+    valid_vaults = []
+    seen = set()
+    for v in potential_vaults:
+        v_path = Path(v).resolve()
+        if (v_path / '.obsidian').is_dir() and str(v_path) not in seen:
+            valid_vaults.append(v_path)
+            seen.add(str(v_path))
+    potential_vaults = valid_vaults
 
     if not potential_vaults:
-        console.print("[bold yellow]⚠️ No se encontró ningún vault de Obsidian en las ubicaciones conocidas.[/bold yellow]")
+        console.print("[yellow]⚠️ No se encontró ningún vault de Obsidian en las ubicaciones conocidas.[/yellow]")
         return None
 
+    # Línea vacía para separar visualmente
+    console.print("")
+
+    # Selección automática si solo hay un vault
     if len(potential_vaults) == 1:
         vault = potential_vaults[0]
-        console.print(f"[bold green]🗄️ Vault detectado automáticamente:[/bold green] [cyan]{shorten_path(vault)}[/cyan] (seleccionado automáticamente)")
+        console.print(f"[green]🗄️ Vault detectado automáticamente: [cyan]{shorten_path(vault)}[/cyan] (seleccionado automáticamente)")
+        console.print("[dim]─────────────────────────────────────────────── 📂[/dim]")
+        console.print(f"[dim]Ruta completa: {vault}[/dim]")
         return vault
-        
+
     # Si hay múltiples vaults, mostrar selección
     try:
         from InquirerPy import inquirer
         from InquirerPy.base.control import Choice
-
-        choices = [Choice(value=str(v), name=shorten_path(v)) for v in potential_vaults]
-        
+        # Instrucciones claras
+        console.print("[bold blue]Usa las flechas ↑ ↓ para moverte, Enter para seleccionar, 'q' para salir.[/bold blue]")
+        console.print("")
+        # Opciones con path acortado y path completo como subtexto
+        def unique_label(v):
+            short = shorten_path(v)
+            parent = v.parent.name if hasattr(v, 'parent') else ''
+            full = str(v)
+            # Detecta Google Drive por la ruta
+            if 'GoogleDrive' in full or 'googledrive' in full:
+                return f"{short} (GoogleDrive)\n{full}"
+            if parent and short == shorten_path(v):
+                return f"{short} ({parent})\n{full}"
+            return f"{short}\n{full}"
+        choices = [Choice(value=str(v), name=f"📁 {unique_label(v)}") for v in potential_vaults]
         selected_path_str = inquirer.select(
             message="Se encontraron varios vaults. Selecciona el que deseas usar:",
             choices=choices,
             default=choices[0]
         ).execute()
-        
-        return Path(selected_path_str)
-
+        if selected_path_str.strip().lower() == 'q':
+            print(' ' * 80, end='\r', flush=True)
+            console.print("[cyan]👋 Saliste del flujo de selección de vault. ¡Hasta la próxima![/cyan]")
+            import sys; sys.exit(0)
+        selected_vault = Path(selected_path_str)
+        console.print(f"[green]✅ Vault seleccionado: [cyan]{shorten_path(selected_vault)}[/cyan][/green]")
+        console.print("[dim]─────────────────────────────────────────────── 📂[/dim]")
+        console.print(f"[dim]Ruta completa: {selected_vault}[/dim]")
+        return selected_vault
     except ImportError:
-        console.print("[bold blue]Se encontraron varios vaults. Selecciona el que deseas usar:[/bold blue]")
+        console.print("[bold blue]Usa las flechas ↑ ↓ para moverte, Enter para seleccionar, 'q' para salir.[/bold blue]")
+        console.print("[blue]Se encontraron varios vaults. Selecciona el que deseas usar (o 'q' para salir):[/blue]")
         for i, v in enumerate(potential_vaults, 1):
-            console.print(f"  {i}. {shorten_path(v)}")
+            console.print(f"  {i}. 📁 {shorten_path(v, 60)} [dim]({v})[/dim]")
         try:
-            idx = int(input(f"Selecciona vault (1-{len(potential_vaults)}): ").strip())
-            return potential_vaults[idx-1]
+            idx = input(f"Selecciona vault (1-{len(potential_vaults)}) o 'q' para salir: ").strip()
+            if idx.lower() == 'q':
+                print(' ' * 80, end='\r', flush=True)
+                console.print("[cyan]👋 Saliste del flujo de selección de vault. ¡Hasta la próxima![/cyan]")
+                import sys; sys.exit(0)
+            idx = int(idx)
+            selected_vault = potential_vaults[idx-1]
+            console.print(f"[green]✅ Vault seleccionado: [cyan]{shorten_path(selected_vault)}[/cyan][/green]")
+            console.print("[dim]─────────────────────────────────────────────── 📂[/dim]")
+            console.print(f"[dim]Ruta completa: {selected_vault}[/dim]")
+            return selected_vault
         except (ValueError, IndexError):
             console.print("[yellow]Selección inválida. Usando el primer vault encontrado.[/yellow]")
-            return potential_vaults[0]
+            selected_vault = potential_vaults[0]
+            console.print(f"[green]✅ Vault seleccionado: [cyan]{shorten_path(selected_vault)}[/cyan][/green]")
+            console.print("[dim]─────────────────────────────────────────────── 📂[/dim]")
+            console.print(f"[dim]Ruta completa: {selected_vault}[/dim]")
+            return selected_vault
     except Exception as e:
-        console.print(f"[bold red]Error durante la selección de vault: {e}. Usando el primero.[/bold red]")
+        logger.error(f"Error durante la selección de vault: {e}", exc_info=True)
+        console.print(f"[red]Error durante la selección de vault: {e}. Usando el primero.[/red]")
         return potential_vaults[0]
 
 def find_vault(vault_path: str = None, force_cache: bool = False) -> Path | None:
     """Detecta y retorna la ruta del vault de Obsidian a usar, con mensajes de marca y auto-selección."""
+    # 1. Priorizar ruta explícita del usuario
     if vault_path:
         path = Path(vault_path).expanduser().resolve()
-        if path.is_dir():
-            console.print(f"[bold green]🗄️ Vault especificado por parámetro:[/bold green] [cyan]{shorten_path(path)}[/cyan]")
+        if path.is_dir() and (path / '.obsidian').is_dir():
+            console.print(f"[green]🗄️ Vault especificado por parámetro: [cyan]{shorten_path(path)}[/cyan]")
             return path
         else:
-            console.print(f"[bold red]❌ La ruta especificada no es un directorio válido:[/bold red] [yellow]{vault_path}[/yellow]")
+            console.print(f"[red]❌ La ruta especificada no es un directorio válido de vault: [yellow]{vault_path}[/yellow]")
             return None
-    # Intentar usar caché
+    # 2. Intentar usar caché
     if CACHE_FILE.exists() and not force_cache:
         try:
             with open(CACHE_FILE, 'r') as f:
                 data = json.load(f)
             cached_path = Path(data.get('vault_path', '')).expanduser().resolve()
-            if cached_path.is_dir():
-                console.print(f"[bold green]🗄️ Vault en caché detectado y seleccionado automáticamente:[/bold green] [cyan]{shorten_path(cached_path)}[/cyan]")
+            if cached_path.is_dir() and (cached_path / '.obsidian').is_dir():
+                console.print(f"[green]🗄️ Vault en caché detectado y seleccionado automáticamente: [cyan]{shorten_path(cached_path)}[/cyan]")
                 return cached_path
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Error al leer caché de vault: {e}")
             pass
-    # Si no hay caché válida, buscar automáticamente
+    # 3. Búsqueda automática robusta
     auto_vault = _detect_vault_automatically()
     if auto_vault:
         # Guardar en caché
         with open(CACHE_FILE, 'w') as f:
             json.dump({'vault_path': str(auto_vault)}, f)
         return auto_vault
-    console.print("[bold red]❌ No se pudo detectar ningún vault de Obsidian. Por favor, especifícalo con --vault.[/bold red]")
+    console.print("[red]❌ No se pudo detectar ningún vault de Obsidian. Por favor, especifícalo con --vault.[/red]")
     return None
 
 def extract_frontmatter(note_text: str) -> tuple[dict, str]:
@@ -528,4 +576,13 @@ def score_para_classification(features: dict, category_weights: dict) -> tuple[s
         return "Inbox", scores[winner_if_no_threshold], breakdowns[winner_if_no_threshold]
 
     winner = max(eligible_scores, key=eligible_scores.get)
-    return winner, int(scores[winner]), breakdowns[winner] 
+    return winner, int(scores[winner]), breakdowns[winner]
+
+def gd_shorten_path(path):
+    parts = os.path.normpath(str(path)).split(os.sep)
+    if 'Obsidian' in parts:
+        idx = parts.index('Obsidian')
+        if idx > 0 and parts[idx-1] == 'Mi unidad':
+            return 'Mi unidad/Obsidian'
+        return 'Obsidian'
+    return parts[-1] 

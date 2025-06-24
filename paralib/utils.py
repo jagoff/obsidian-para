@@ -6,16 +6,22 @@ import functools
 import typer
 import json
 import importlib.util
-from paralib.vault import find_vault
+from rich.console import Console
 
-def shorten_path(path, n=3):
-    parts = os.path.normpath(str(path)).split(os.sep)
-    if 'Obsidian' in parts:
-        idx = parts.index('Obsidian')
-        if idx > 0 and parts[idx-1] == 'Mi unidad':
-            return 'Mi unidad/Obsidian'
-        return 'Obsidian'
-    return parts[-1]
+def shorten_path(path, max_len: int = 70):
+    """Acorta una ruta para mostrarla de forma legible."""
+    if isinstance(path, str):
+        path = Path(path)
+    path_str = str(path.resolve())
+    home = str(Path.home())
+    if path_str.startswith(home):
+        path_str = "~" + path_str[len(home):]
+    if len(path_str) <= max_len:
+        return path_str
+    parts = path_str.split(os.sep)
+    if len(parts) > 4:
+        return os.path.join(parts[0], parts[1], "...", *parts[-2:])
+    return path_str
 
 def check_recent_errors(console, supports_color):
     import re
@@ -133,3 +139,10 @@ def pre_command_checks(func):
             print(f"[CRITICAL] Error inesperado: {e}\nSugerencia: ejecuta 'python para_cli.py doctor' para limpiar y diagnosticar.")
             raise
     return wrapper 
+
+def format_vault_found_message(vault_path, color='green'):
+    """
+    Devuelve un string formateado para mostrar un vault encontrado, usando el acortador y el color adecuado.
+    """
+    short = shorten_path(vault_path, 60)
+    return f"[{color}]✅ Vault encontrado: [cyan]{short}[/cyan][/{color}]" 

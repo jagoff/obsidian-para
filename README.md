@@ -37,6 +37,150 @@ Antes de ejecutar cualquier acción de clasificación, refactorización o automa
 3. Revisión y feedback (opcional)
 4. Ajuste de reglas, pesos o prompts según resultados
 
+### 3. Revisión y feedback (opcional)
+   - Revisa las clasificaciones sugeridas
+   - Proporciona feedback para mejorar el sistema
+   - El sistema aprende de tus correcciones
+
+## 📊 Sistema de Feedback y Mejora Continua
+
+El sistema incluye un **sistema avanzado de feedback** que permite mejorar continuamente la calidad de clasificación:
+
+### Comandos de Feedback
+
+```bash
+# Análisis de calidad del sistema
+python para_cli.py feedback-quality --detailed
+
+# Revisión interactiva de feedback
+python para_cli.py review-feedback
+
+# Mejora automática de parámetros
+python para_cli.py improve-classification --auto-adjust
+
+# Crear feedback de muestra para pruebas
+python para_cli.py sample-feedback
+
+# Exportar reporte completo de calidad
+python para_cli.py export-report
+```
+
+### Características del Sistema de Feedback
+
+- **Análisis de Calidad**: Score de calidad (0-100) basado en múltiples métricas
+- **Análisis de Patrones**: Detecta transiciones comunes y razones de corrección
+- **Ajuste Automático**: Optimiza parámetros basado en feedback acumulado
+- **Reportes Detallados**: Exporta análisis completos en JSON
+- **Revisión Interactiva**: Interfaz para revisar y gestionar feedback
+- **Métricas Avanzadas**: Análisis de confianza, distribución por categorías, patrones temporales
+
+### Métricas de Calidad
+
+- **Tasa de Feedback**: Porcentaje de notas con correcciones
+- **Score de Calidad**: Puntuación general del sistema (0-100)
+- **Distribución por Categorías**: Análisis de precisión por tipo
+- **Análisis de Confianza**: Relación entre confianza y precisión
+- **Patrones de Corrección**: Transiciones más comunes
+- **Análisis Temporal**: Tendencias y sesiones de feedback
+
+## 🧠 Sistema de Aprendizaje Autónomo
+
+El **Sistema de Aprendizaje Autónomo** es la evolución del feedback, proporcionando aprendizaje automático con métricas cuantificables y visualización gráfica:
+
+### Comandos de Aprendizaje
+
+```bash
+# Dashboard interactivo de aprendizaje
+python para_cli.py learn --dashboard
+
+# Crear snapshot de aprendizaje
+python para_cli.py learn --snapshot
+
+# Análisis de progreso (30 días)
+python para_cli.py learn --progress 30
+
+# Aprender de una clasificación específica
+python para_cli.py learn-from-classification "nota.md" --actual "Projects"
+
+# Métricas detalladas de aprendizaje
+python para_cli.py learning-metrics --detailed --export
+```
+
+### Características del Sistema de Aprendizaje
+
+- **Aprendizaje Automático**: Aprende de cada clasificación individual
+- **Métricas Cuantificables**: Score de calidad (0-100) con múltiples factores
+- **Velocidad de Aprendizaje**: Mide qué tan rápido mejora el sistema
+- **Correlación Confianza-Precisión**: Calibración automática del sistema
+- **Dashboard Visual**: Gráficos interactivos con Plotly y Streamlit
+- **Insights Automáticos**: Sugerencias de mejora basadas en datos
+- **Análisis Histórico**: Tendencias y progreso a lo largo del tiempo
+
+### Métricas de Aprendizaje
+
+- **Score de Calidad** (0-100): Basado en 4 factores principales
+- **Velocidad de Aprendizaje**: Tendencia de mejora en precisión
+- **Correlación Confianza**: Qué tan bien calibrado está el sistema
+- **Score de Mejora**: Progreso general del sistema
+- **Coherencia Semántica**: Calidad de embeddings
+- **Balance de Categorías**: Distribución equilibrada
+- **Satisfacción Usuario**: Basada en feedback rate
+- **Adaptabilidad Sistema**: Capacidad de ajuste automático
+
+---
+
+## 📁 Sistema de Feedback de Carpetas
+
+El **Sistema de Feedback de Carpetas** es una funcionalidad avanzada que permite evaluar la calidad de las carpetas creadas automáticamente, especialmente las carpetas de proyectos. Este sistema aprende de las decisiones del usuario para mejorar continuamente la clasificación.
+
+### ¿Por qué es Importante?
+
+La creación de carpetas de proyectos es fundamental para la organización efectiva:
+- ✅ **"aws-tagging"** - Tiene sentido como proyecto real
+- ❌ **"lalala-land"** - No debería crearse como proyecto
+
+El sistema necesita aprender estas preferencias específicas del usuario.
+
+### Comandos de Feedback de Carpetas
+
+```bash
+# Estadísticas de feedback de carpetas
+python para_cli.py folder-feedback --stats
+
+# Modo interactivo para revisar carpetas creadas
+python para_cli.py folder-feedback --interactive
+
+# Sugerencias de mejora basadas en feedback
+python para_cli.py folder-feedback --suggest
+
+# Análisis personalizado (60 días)
+python para_cli.py folder-feedback --stats --days 60
+```
+
+### Características del Sistema de Feedback de Carpetas
+
+- **Registro Automático**: Cada carpeta creada se registra automáticamente con información completa
+- **Feedback Interactivo**: Permite revisar carpetas recientes y dar feedback detallado
+- **Análisis Estadístico**: Tasa de aprobación por categoría, método y confianza
+- **Patrones de Nombres**: Identifica patrones exitosos en nombres de carpetas
+- **Sugerencias Inteligentes**: Propone mejoras basadas en el análisis de feedback
+- **Integración Completa**: Se integra con el sistema de aprendizaje autónomo
+
+### Métricas de Carpetas
+
+- **Tasa de Aprobación**: Porcentaje de carpetas que el usuario considera apropiadas
+- **Rendimiento por Método**: Efectividad de ChromaDB vs IA vs Consenso
+- **Correlación de Confianza**: Relación entre confianza del sistema y aprobación del usuario
+- **Patrones Exitosos**: Nombres y patrones de carpetas más aprobados
+- **Análisis por Categoría**: Precisión específica para Projects, Areas, Resources
+
+### Flujo de Trabajo Recomendado
+
+1. **Clasificación**: `python para_cli.py classify --execute`
+2. **Revisión Semanal**: `python para_cli.py folder-feedback --interactive`
+3. **Análisis Mensual**: `python para_cli.py folder-feedback --stats`
+4. **Optimización**: `python para_cli.py folder-feedback --suggest`
+
 ---
 
 ## Personalización de la IA: Instrucciones al Prompt
@@ -53,6 +197,19 @@ Esto permite reglas contextuales, agrupaciones especiales o cualquier directiva 
 La IA tendrá en cuenta tu instrucción al clasificar las notas, combinando tu prompt con las reglas y features estructurados del sistema.
 
 ---
+
+## 🚀 Características Principales
+
+- **Clasificación Inteligente**: Usa IA para clasificar automáticamente notas en Projects, Areas, Resources o Archive.
+- **Análisis Semántico Avanzado**: Integración profunda con ChromaDB para búsqueda semántica y análisis de patrones.
+- **Sistema Híbrido**: Combina análisis semántico y clasificación por IA para máxima precisión.
+- **🧠 Sistema de Aprendizaje Autónomo**: Aprende, mejora y se optimiza automáticamente con métricas cuantificables y dashboard visual.
+- **Feedback y Mejora Continua**: Sistema completo de feedback con análisis de calidad y ajuste automático de parámetros.
+- **Planificación Inteligente**: Genera planes detallados antes de aplicar cambios con confirmación del usuario.
+- **Backup Automático**: Crea respaldos antes de cada operación con capacidad de rollback.
+- **Interfaz Web**: Dashboard completo para visualizar y gestionar tu vault.
+- **CLI Potente**: Comandos intuitivos para todas las operaciones.
+- **Aprende de tu feedback y de los patrones de tu vault, mejorando con el tiempo.**
 
 ## Principales funcionalidades
 - Detección automática y robusta de vaults, incluyendo rutas en Google Drive, iCloud y otras nubes.
@@ -164,3 +321,38 @@ Incluye un dashboard visual moderno (Streamlit) para explorar, auditar y analiza
 cd chromadb_admin
 streamlit run app.py
 ```
+
+---
+
+## Estructura del Proyecto
+
+- `para_cli.py`: CLI principal del sistema PARA.
+- `paralib/`: Lógica central, algoritmos, integración con ChromaDB, aprendizaje y feedback.
+- `chromadb_admin/`: Utilidades avanzadas y administración de ChromaDB (para usuarios avanzados/desarrolladores).
+- `backups/`: Backups automáticos y manuales del vault antes de cada acción importante.
+- `docs/`: Documentación avanzada, sistemas, arquitectura y ejemplos.
+- `logs/`: Logs de operación y auditoría.
+- `requirements.txt`: Dependencias del sistema.
+- `launch.sh`/`launch.py`: Scripts legacy, usar la CLI principal.
+
+### Flujo de Backups
+
+Antes de cualquier acción que modifique el vault (clasificación, refactorización, limpieza, etc.), el sistema crea un backup automático en la carpeta `backups/`. Puedes restaurar cualquier backup manualmente descomprimiendo el archivo correspondiente.
+
+---
+
+## Documentación avanzada
+
+Toda la documentación técnica, arquitectónica y de sistemas avanzados se encuentra en la carpeta `docs/`:
+
+- `SISTEMA_FEEDBACK_CARPETAS.md`: Feedback de carpetas y aprendizaje.
+- `SISTEMA_APRENDIZAJE_AUTONOMO.md`: Sistema de aprendizaje autónomo.
+- `SISTEMA_FEEDBACK_MEJORADO.md`: Feedback mejorado y análisis de calidad.
+- `SISTEMA_PLANIFICACION_COMPLETO.md`: Planificación y confirmación de acciones.
+- `SISTEMA_HIBRIDO_AVANZADO.md`: Sistema híbrido de clasificación.
+- `CHROMADB_POTENCIADO.md`: Integración avanzada con ChromaDB.
+- `ANALISIS_COMPLETO_OBSIDIAN.md`: Análisis completo de notas y vault.
+
+Consulta estos archivos en `docs/` para detalles, ejemplos y arquitectura.
+
+---

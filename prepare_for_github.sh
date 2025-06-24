@@ -1,6 +1,5 @@
 #!/bin/bash
-
-# Script para preparar el proyecto PARA System para GitHub
+# Este script prepara el proyecto para publicación en GitHub, asegurando limpieza, estructura profesional y documentación en docs/.
 
 echo "🚀 Preparando PARA System para GitHub..."
 
