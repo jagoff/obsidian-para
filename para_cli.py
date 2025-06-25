@@ -447,13 +447,13 @@ class PARACLI:
         import sys
         try:
             console.print("[bold blue]Lanzando dashboard en el navegador...[/bold blue]")
-            subprocess.run([sys.executable.replace('python', 'streamlit'), 'run', 'para_backend_dashboard.py'], check=True)
+            subprocess.run([sys.executable.replace('python', 'streamlit'), 'run', 'paralib/dashboard.py'], check=True)
         except subprocess.CalledProcessError as e:
             logger.error(f"Error ejecutando dashboard: {e}")
             console.print("[red]Error ejecutando el dashboard con Streamlit.[/red]")
         except FileNotFoundError:
-            logger.error("Dashboard no encontrado. Ejecute: streamlit run para_backend_dashboard.py")
-            console.print("[red]Dashboard no encontrado. Ejecute: streamlit run para_backend_dashboard.py[/red]")
+            logger.error("Dashboard no encontrado. Ejecute: streamlit run paralib/dashboard.py")
+            console.print("[red]Dashboard no encontrado. Ejecute: streamlit run paralib/dashboard.py[/red]")
     
     def cmd_doctor(self, *args):
         """Comando del doctor."""
@@ -883,234 +883,63 @@ class PARACLI:
         console.print("[bold green]🚀 Iniciando migración automatizada...[/bold green]")
         
         try:
-            # 1. Clasificar todas las notas sin clasificar
-            console.print("\n[bold]1️⃣ Clasificando notas sin organizar...[/bold]")
-            self._classify_unorganized_notes(vault)
+            # Usar el sistema completo de reclasificación que maneja todo automáticamente
+            console.print("\n[bold]🔄 Ejecutando sistema completo de clasificación híbrida...[/bold]")
             
-            # 2. Crear estructura PARA si no existe
-            console.print("\n[bold]2️⃣ Creando estructura PARA...[/bold]")
-            self._create_para_structure(vault)
+            from paralib.organizer import run_full_reclassification, PARAOrganizer, get_profile
+            from paralib.db import ChromaPARADatabase
+            from pathlib import Path
             
-            # 3. Mover notas a sus categorías correspondientes
-            console.print("\n[bold]3️⃣ Moviendo notas a categorías PARA...[/bold]")
-            self._move_notes_to_para_structure(vault)
+            # Inicializar componentes
+            vault_path = Path(vault)
+            db_path = vault_path / ".para_db" / "chroma"
+            db = ChromaPARADatabase(db_path=str(db_path))
+            organizer = PARAOrganizer()
             
-            # 4. Optimizar y limpiar
-            console.print("\n[bold]4️⃣ Optimizando estructura...[/bold]")
-            self._optimize_para_structure(vault)
+            # Obtener configuración
+            system_prompt = get_profile()
+            model_name = self.config.get("ollama_model", "llama3.2:3b")
             
-            # 5. Generar reporte final
-            console.print("\n[bold]5️⃣ Generando reporte final...[/bold]")
-            self._generate_migration_report(vault)
+            # Ejecutar el sistema completo de reclasificación
+            success = run_full_reclassification(
+                vault_path=vault_path,
+                db=db,
+                extra_prompt="Migración completa automatizada al sistema PARA usando clasificación híbrida",
+                model_name=model_name,
+                execute=True  # Ejecutar automáticamente sin preguntas
+            )
             
-            console.print("\n[bold green]✅ Migración completada exitosamente![/bold green]")
-            console.print("[green]🎯 Tu vault ahora está organizado según la metodología PARA.[/green]")
-            console.print("[green]💡 Puedes usar 'para dashboard' para ver el resultado en el navegador.[/green]")
+            if success:
+                console.print("\n[bold green]✅ Migración completada exitosamente![/bold green]")
+                console.print("[green]🎯 Tu vault ahora está organizado según la metodología PARA.[/green]")
+                console.print("[green]💡 Puedes usar 'para dashboard' para ver el resultado en el navegador.[/green]")
+                
+                # Mostrar estadísticas finales
+                try:
+                    final_stats = db.get_database_stats()
+                    console.print(f"\n[bold blue]📊 Estadísticas finales:[/bold blue]")
+                    console.print(f"   📁 Total notas procesadas: {final_stats.get('total_notes', 0)}")
+                    
+                    distribution = final_stats.get('category_distribution', {})
+                    if distribution:
+                        console.print(f"   📂 Distribución por categoría:")
+                        for category, count in distribution.items():
+                            console.print(f"      • {category}: {count} notas")
+                    
+                    console.print(f"   📅 Última actualización: {final_stats.get('last_updated', 'N/A')}")
+                    
+                except Exception as e:
+                    console.print(f"[yellow]⚠️ No se pudieron obtener estadísticas finales: {e}[/yellow]")
+                
+            else:
+                console.print("[red]❌ La migración no se completó completamente.[/red]")
+                console.print("[yellow]💡 Intenta ejecutar 'para doctor' para diagnosticar problemas.[/yellow]")
             
         except Exception as e:
             console.print(f"[red]❌ Error durante la migración: {e}[/red]")
             logger.error(f"Error en migración: {e}")
             console.print("[yellow]💡 Intenta ejecutar 'para doctor' para diagnosticar problemas.[/yellow]")
     
-    def _classify_unorganized_notes(self, vault_path):
-        """Clasifica todas las notas sin organizar usando AI."""
-        try:
-            from paralib.organizer import PARAOrganizer
-            from pathlib import Path
-            
-            organizer = PARAOrganizer()
-            vault = Path(vault_path)
-            
-            # Encontrar notas sin clasificar (fuera de estructura PARA)
-            unclassified_notes = []
-            for note_file in vault.rglob("*.md"):
-                if note_file.name != ".obsidian":
-                    # Verificar si está en estructura PARA
-                    relative_path = note_file.relative_to(vault)
-                    if not any(para_dir in str(relative_path) for para_dir in ['00-inbox', '01-projects', '02-areas', '03-resources', '04-archive']):
-                        unclassified_notes.append(note_file)
-            
-            if not unclassified_notes:
-                console.print("[green]✅ No hay notas sin clasificar.[/green]")
-                return
-            
-            console.print(f"[yellow]📝 Clasificando {len(unclassified_notes)} notas...[/yellow]")
-            
-            for i, note_file in enumerate(unclassified_notes, 1):
-                console.print(f"[dim]Procesando {i}/{len(unclassified_notes)}: {note_file.name}[/dim]")
-                
-                try:
-                    # Clasificar con AI
-                    if hasattr(organizer, 'classify_note_with_ai'):
-                        classification = organizer.classify_note_with_ai(str(note_file))
-                    else:
-                        # Fallback: clasificación básica
-                        classification = {'category': 'inbox', 'confidence': 0.5}
-                    
-                    # Aprender del resultado
-                    self._learn_from_classification(note_file, classification)
-                    
-                    console.print(f"[green]✅ {note_file.name} → {classification.get('category', 'Unknown')}[/green]")
-                    
-                except Exception as e:
-                    console.print(f"[red]❌ Error clasificando {note_file.name}: {e}[/red]")
-                    logger.error(f"Error clasificando {note_file}: {e}")
-                    
-        except Exception as e:
-            console.print(f"[yellow]⚠️ Error en clasificación: {e}[/yellow]")
-            logger.error(f"Error en clasificación de notas: {e}")
-    
-    def _create_para_structure(self, vault_path):
-        """Crea la estructura de directorios PARA si no existe."""
-        try:
-            from pathlib import Path
-            
-            vault = Path(vault_path)
-            para_dirs = ['00-inbox', '01-projects', '02-areas', '03-resources', '04-archive']
-            
-            for dir_name in para_dirs:
-                dir_path = vault / dir_name
-                if not dir_path.exists():
-                    dir_path.mkdir(exist_ok=True)
-                    console.print(f"[green]📁 Creado: {dir_name}[/green]")
-                else:
-                    console.print(f"[dim]📁 Ya existe: {dir_name}[/dim]")
-                    
-        except Exception as e:
-            console.print(f"[yellow]⚠️ Error creando estructura PARA: {e}[/yellow]")
-            logger.error(f"Error creando estructura PARA: {e}")
-    
-    def _move_notes_to_para_structure(self, vault_path):
-        """Mueve las notas clasificadas a sus categorías PARA correspondientes."""
-        try:
-            from paralib.organizer import PARAOrganizer
-            from pathlib import Path
-            import shutil
-            
-            organizer = PARAOrganizer()
-            vault = Path(vault_path)
-            
-            # Obtener clasificaciones de la base de datos
-            db = organizer.db
-            if hasattr(db, 'get_all_classifications'):
-                classifications = db.get_all_classifications()
-            else:
-                console.print("[yellow]⚠️ No se pudo obtener clasificaciones de la base de datos.[/yellow]")
-                return
-            
-            moved_count = 0
-            for classification in classifications:
-                note_path = Path(classification.get('note_path', ''))
-                category = classification.get('category', '')
-                
-                if not note_path.exists() or not category:
-                    continue
-                
-                # Determinar directorio destino
-                target_dir = None
-                if category.lower() in ['project', 'projects']:
-                    target_dir = vault / '01-projects'
-                elif category.lower() in ['area', 'areas']:
-                    target_dir = vault / '02-areas'
-                elif category.lower() in ['resource', 'resources']:
-                    target_dir = vault / '03-resources'
-                elif category.lower() in ['archive']:
-                    target_dir = vault / '04-archive'
-                else:
-                    target_dir = vault / '00-inbox'
-                
-                # Mover archivo
-                if note_path.parent != target_dir:
-                    target_path = target_dir / note_path.name
-                    if not target_path.exists():
-                        shutil.move(str(note_path), str(target_path))
-                        moved_count += 1
-                        console.print(f"[green]📄 Movido: {note_path.name} → {target_dir.name}[/green]")
-            
-            console.print(f"[green]✅ {moved_count} notas movidas a estructura PARA.[/green]")
-            
-        except Exception as e:
-            console.print(f"[yellow]⚠️ Error moviendo notas: {e}[/yellow]")
-            logger.error(f"Error moviendo notas: {e}")
-    
-    def _optimize_para_structure(self, vault_path):
-        """Optimiza la estructura PARA (elimina duplicados, mejora nombres, etc.)."""
-        try:
-            from paralib.organizer import PARAOrganizer
-            
-            organizer = PARAOrganizer()
-            
-            # Ejecutar limpieza y optimización si el método existe
-            if hasattr(organizer, 'optimize_para_structure'):
-                organizer.optimize_para_structure(str(vault_path))
-                console.print("[green]✅ Estructura PARA optimizada.[/green]")
-            else:
-                console.print("[dim]📝 Optimización de estructura no disponible.[/dim]")
-                
-        except Exception as e:
-            console.print(f"[yellow]⚠️ Error optimizando estructura: {e}[/yellow]")
-            logger.error(f"Error optimizando estructura: {e}")
-    
-    def _generate_migration_report(self, vault_path):
-        """Genera un reporte final de la migración."""
-        try:
-            from paralib.analyze_manager import AnalyzeManager
-            from datetime import datetime
-            
-            analyzer = AnalyzeManager(vault_path=str(vault_path))
-            if hasattr(analyzer, 'analyze_vault_structure'):
-                final_analysis = analyzer.analyze_vault_structure(str(vault_path))
-            else:
-                final_analysis = {'total_notes': 0, 'classified_notes': 0, 'para_structure': 'Implementada'}
-            
-            console.print("\n[bold blue]📊 Reporte de Migración[/bold blue]")
-            console.print(f"   📁 Total notas: {final_analysis.get('total_notes', 0)}")
-            console.print(f"   📂 Notas clasificadas: {final_analysis.get('classified_notes', 0)}")
-            console.print(f"   🗂️ Estructura PARA: {final_analysis.get('para_structure', 'Implementada')}")
-            console.print(f"   📅 Fecha: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-            
-        except Exception as e:
-            console.print(f"[yellow]⚠️ Error generando reporte: {e}[/yellow]")
-            # Reporte básico como fallback
-            from datetime import datetime
-            from pathlib import Path
-            vault_path = Path(vault_path)
-            total_notes = len(list(vault_path.rglob("*.md")))
-            console.print("\n[bold blue]📊 Reporte de Migración (Básico)[/bold blue]")
-            console.print(f"   📁 Total notas: {total_notes}")
-            console.print(f"   🗂️ Estructura PARA: Implementada")
-            console.print(f"   📅 Fecha: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-            logger.error(f"Error generando reporte: {e}")
-    
-    def _learn_from_classification(self, note_path, classification):
-        """Aprende de cada clasificación para mejorar el modelo."""
-        try:
-            learning_system = self._get_learning_system()
-            if learning_system and hasattr(learning_system, 'learn_from_classification'):
-                learning_system.learn_from_classification(classification)
-            
-            # Registrar para análisis de prompts AI
-            if hasattr(classification, 'original_prompt'):
-                ai_engine.record_prompt_execution(
-                    classification.original_prompt,
-                    classification,
-                    success=True
-                )
-                
-        except Exception as e:
-            logger.warning(f"Error registrando aprendizaje: {e}")
-
-    def _get_learning_system(self):
-        """Inicializa el sistema de aprendizaje de forma perezosa."""
-        if self.learning_system is None:
-            from paralib.learning_system import PARA_Learning_System
-            vault_path = self._require_vault()
-            if not vault_path:
-                # Usar un path por defecto si no hay vault para evitar fallos
-                vault_path = Path.cwd() / "default_learning"
-            self.learning_system = PARA_Learning_System(vault_path=vault_path)
-        return self.learning_system
-
     def _check_ai_status(self, silent=False) -> bool:
         """Verifica la conexión con Ollama y la existencia del modelo. Devuelve True si todo está OK."""
         model_name = self.config.get("ollama_model")
@@ -1244,6 +1073,17 @@ class PARACLI:
             
         except Exception as e:
             logger.warning(f"⚠️ Error registrando aprendizaje de error en prompt: {e}")
+
+    def _get_learning_system(self):
+        """Inicializa el sistema de aprendizaje de forma perezosa."""
+        if self.learning_system is None:
+            from paralib.learning_system import PARA_Learning_System
+            vault_path = self._require_vault()
+            if not vault_path:
+                # Usar un path por defecto si no hay vault para evitar fallos
+                vault_path = Path.cwd() / "default_learning"
+            self.learning_system = PARA_Learning_System(vault_path=vault_path)
+        return self.learning_system
 
 def main():
     """Función principal."""

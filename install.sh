@@ -265,6 +265,21 @@ show_completion() {
     echo
 }
 
+# Ejecutar setup de Python si está disponible
+if command -v python3 >/dev/null 2>&1; then
+    print_step "🔧 Ejecutando setup de Python..."
+    if [ -f "paralib/setup.py" ]; then
+        python3 paralib/setup.py
+        if [ $? -eq 0 ]; then
+            print_success "Setup de Python completado"
+        else
+            print_error "Error en setup de Python"
+        fi
+    else
+        print_info "Setup de Python no encontrado, continuando con instalación manual"
+    fi
+fi
+
 # Función principal
 main() {
     print_header

@@ -126,13 +126,28 @@ El sistema también entiende comandos en lenguaje natural:
 - 🧠 **Aprendizaje continuo**: El sistema mejora con el uso
 - 🎯 **Prompts en lenguaje natural**: Usa comandos como "reclasifica mis notas"
 
-## 🌐 Dashboard
-
-Abre http://localhost:8501 en tu navegador tras lanzar el dashboard:
+## 🎯 Uso del Dashboard
 
 ```bash
+# Lanzar el dashboard web
 ./para_cli.py dashboard
+
+# O directamente con Streamlit
+streamlit run paralib/dashboard.py
+
+# Dashboard con vault específico
+streamlit run paralib/dashboard.py -- --vault /path/to/vault
 ```
+
+El dashboard incluye:
+- 📊 **Dashboard Principal**: Resumen general del sistema
+- 🧠 **Sistema de Aprendizaje**: Progreso y mejora continua
+- 🚨 **Alertas del Sistema**: Estado de todos los servicios
+- 📊 **Logs & Errores**: Análisis de logs del sistema
+- 🔍 **ChromaDB Analytics**: Estadísticas de la base de datos vectorial
+- 💊 **Doctor System**: Diagnóstico y reparación automática
+- 📈 **Métricas de Usuario**: Análisis de uso y satisfacción
+- ⚙️ **Configuración del Sistema**: Gestión de configuración
 
 ## 🛡️ Seguridad
 

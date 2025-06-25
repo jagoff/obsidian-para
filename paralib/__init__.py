@@ -1,23 +1,45 @@
 """
-paralib: Lógica de negocio central para el sistema PARA (features, reglas, scoring, embeddings, logging, etc.).
-""" 
+PARA System Library
 
-from .vault import find_vault, load_para_config, save_para_config, extract_frontmatter
-from .organizer import run_archive_refactor, run_inbox_classification, get_keywords, get_rules, get_profile
-from .utils import auto_backup_if_needed, pre_command_checks, check_recent_errors
-from .db import ChromaPARADatabase
-from .logger import logger
-from .log_analyzer import analyze_and_fix_log
-from .clean_manager import find_non_md_files, find_corrupt_or_unreadable
-from .ui import run_monitor_dashboard, select_folders_to_exclude
-from .similarity import find_similar_classification, register_project_alias
-from .finetune_manager import *
-from .analyze_manager import *
-from .classification_log import *
-from .config import *
-from .learning_system import *
-from .log_manager import *
-from .plugin_system import *
+Sistema completo para organizar automáticamente vaults de Obsidian usando la metodología PARA
+con IA local y base de datos vectorial.
+
+Módulos principales:
+- organizer: Clasificación y organización de notas
+- learning_system: Sistema de aprendizaje autónomo
+- db: Base de datos vectorial ChromaDB
+- ai_engine: Motor de IA con Ollama
+- dashboard: Dashboard unificado del sistema
+- log_manager: Gestión de logs y errores
+- plugin_system: Sistema de plugins extensible
+- vault: Gestión de vaults de Obsidian
+- config: Configuración del sistema
+"""
 
 __version__ = "2.0.0"
-__author__ = "PARA Team"
+__author__ = "PARA System Team"
+__description__ = "Sistema de organización automática de notas con IA"
+
+# Imports principales
+from .organizer import PARAOrganizer, run_full_reclassification
+from .learning_system import PARA_Learning_System
+from .db import ChromaPARADatabase
+from .ai_engine import ai_engine
+from .dashboard import PARADashboard
+from .log_manager import PARALogManager
+from .plugin_system import PARAPluginManager
+from .vault import find_vault
+from .config import load_config
+
+__all__ = [
+    'PARAOrganizer',
+    'run_full_reclassification', 
+    'PARA_Learning_System',
+    'ChromaPARADatabase',
+    'ai_engine',
+    'PARADashboard',
+    'PARALogManager',
+    'PARAPluginManager',
+    'find_vault',
+    'load_config'
+]
