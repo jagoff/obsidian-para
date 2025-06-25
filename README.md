@@ -4,13 +4,107 @@ Sistema completo para organizar automáticamente tu vault de Obsidian usando la 
 
 ## 🚀 Instalación
 
+### Instalación Automática (Recomendada)
+
 ```bash
-python3 para.py
+# Clonar el repositorio
+git clone https://github.com/tu-usuario/obsidian-para.git
+cd obsidian-para
+
+# Instalación automática completa
+./install.sh
+```
+
+El script de instalación automática:
+- ✅ Instala todas las dependencias del sistema
+- ✅ Configura Ollama y descarga el modelo de IA
+- ✅ Crea el entorno virtual de Python
+- ✅ Instala todos los paquetes necesarios
+- ✅ Configura el sistema automáticamente
+- ✅ Ejecuta tests de verificación
+
+### Instalación Manual
+
+Si prefieres instalar manualmente:
+
+```bash
+# 1. Verificar Python 3.8+
+python3 --version
+
+# 2. Crear entorno virtual
+python3 -m venv venv
+source venv/bin/activate  # En Windows: venv\Scripts\activate
+
+# 3. Instalar dependencias
+pip install -r requirements.txt
+
+# 4. Instalar Ollama
+curl -fsSL https://ollama.ai/install.sh | sh
+
+# 5. Descargar modelo de IA
+ollama pull llama3.2:3b
+
+# 6. Hacer scripts ejecutables
+chmod +x para_cli.py para.py
+
+# 7. Configurar (opcional)
+cp para_config.default.json para_config.json
+```
+
+### Verificación de Instalación
+
+```bash
+# Verificar que todo funciona
+./para_cli.py doctor
+
+# Probar el sistema
+./para_cli.py start
 ```
 
 ## 🎯 Uso
 
-Al ejecutar el script, verás un menú interactivo con opciones para instalar, lanzar el dashboard, la CLI, hacer backups y más.
+### Comando Principal
+
+```bash
+# Migración automática completa al sistema PARA
+./para_cli.py start
+
+# O simplemente (start es el comando por defecto)
+./para_cli.py
+```
+
+### Otros Comandos Útiles
+
+```bash
+# Ver todos los comandos disponibles
+./para_cli.py help
+
+# Dashboard web
+./para_cli.py dashboard
+
+# Diagnosticar problemas
+./para_cli.py doctor
+
+# Clasificar notas manualmente
+./para_cli.py classify
+
+# Analizar vault
+./para_cli.py analyze
+
+# Sistema de aprendizaje
+./para_cli.py learn review
+```
+
+### Prompts en Lenguaje Natural
+
+El sistema también entiende comandos en lenguaje natural:
+
+```bash
+./para_cli.py "reclasifica todas mis notas"
+./para_cli.py "muéstrame las notas recientes"
+./para_cli.py "crea un backup"
+./para_cli.py "limpiar vault"
+```
 
 ## 🧠 Estructura PARA
 
@@ -22,23 +116,70 @@ Al ejecutar el script, verás un menú interactivo con opciones para instalar, l
 
 ## 🔍 Características
 
-- IA Local con Ollama
-- Base de datos vectorial ChromaDB
-- Dashboard web en tiempo real
-- Búsqueda semántica
-- Backup automático
-- Monitoreo de progreso
+- 🚀 **Migración Automática**: Comando `start` que hace todo automáticamente
+- 🤖 **IA Local con Ollama**: Clasificación inteligente sin dependencias externas
+- 🗄️ **Base de datos vectorial ChromaDB**: Búsqueda semántica avanzada
+- 📊 **Dashboard web en tiempo real**: Visualización interactiva
+- 🔍 **Búsqueda semántica**: Encuentra contenido por significado, no solo palabras
+- 💾 **Backup automático**: Protección de datos integrada
+- 📈 **Monitoreo de progreso**: Métricas detalladas del sistema
+- 🧠 **Aprendizaje continuo**: El sistema mejora con el uso
+- 🎯 **Prompts en lenguaje natural**: Usa comandos como "reclasifica mis notas"
 
 ## 🌐 Dashboard
 
-Abre http://localhost:8501 en tu navegador tras lanzar el dashboard desde el menú.
+Abre http://localhost:8501 en tu navegador tras lanzar el dashboard:
+
+```bash
+./para_cli.py dashboard
+```
 
 ## 🛡️ Seguridad
 
-- Backup automático
-- Modo dry-run por defecto
-- Validación de IA
-- Manejo de errores robusto
+- ✅ **Backup automático** antes de cualquier cambio
+- ✅ **Modo dry-run** por defecto para pruebas
+- ✅ **Validación de IA** antes de ejecutar
+- ✅ **Manejo de errores robusto** con fallbacks
+- ✅ **Verificación de integridad** de datos
+
+## 📋 Requisitos del Sistema
+
+- **Python**: 3.8 o superior
+- **Sistema Operativo**: macOS, Linux, Windows
+- **Memoria**: Mínimo 4GB RAM (recomendado 8GB+)
+- **Espacio**: 2GB libres para modelos de IA
+- **Ollama**: Instalado automáticamente por el script
+
+## 🔧 Solución de Problemas
+
+### Problemas Comunes
+
+```bash
+# Si hay problemas con dependencias
+./para_cli.py doctor
+
+# Si Ollama no funciona
+ollama serve
+
+# Si el modelo no se descarga
+ollama pull llama3.2:3b
+
+# Si hay problemas de permisos
+chmod +x para_cli.py para.py install.sh
+```
+
+### Logs y Debugging
+
+```bash
+# Ver logs del sistema
+./para_cli.py logs
+
+# Ver errores recientes
+./para_cli.py logs-errors
+
+# Estado del aprendizaje
+./para_cli.py learning-status
+```
 
 ---
 
