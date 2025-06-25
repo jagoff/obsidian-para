@@ -39,6 +39,7 @@ class PARACLI:
         
         # Comandos core del sistema
         self.core_commands = {
+            'start': self.cmd_start,
             'classify': self.cmd_classify,
             'analyze': self.cmd_analyze,
             'clean': self.cmd_clean,
@@ -74,7 +75,8 @@ class PARACLI:
             args = sys.argv[1:]
         
         if not args:
-            self.cmd_help()
+            # Si no hay argumentos, ejecutar el comando start por defecto
+            self.cmd_start()
             return
         
         # Obtener el primer argumento (comando o prompt)
@@ -189,11 +191,16 @@ class PARACLI:
             interpreted_command = ai_engine.interpret_prompt(prompt, available_commands)
         except Exception as e:
             ai_error = str(e)
+        
         if not interpreted_command:
             if ai_error:
                 console.print(f"[bold red]❌ Error interpretando prompt AI: {ai_error}[/bold red]")
             else:
                 console.print("[bold red]❌ No se pudo interpretar el prompt. Mostrando ayuda y ejecutando doctor.[/bold red]")
+            
+            # APRENDIZAJE AUTOMÁTICO: Registrar el prompt fallido para mejorar el modelo
+            self._learn_from_failed_prompt(prompt, ai_error, available_commands)
+            
             # Ejecutar doctor automáticamente
             try:
                 from paralib.log_manager import PARALogManager
@@ -204,6 +211,7 @@ class PARACLI:
                 console.print(f"[red]❌ Error ejecutando doctor: {doctor_error}[/red]")
             self.cmd_help()
             return
+        
         # Mostrar interpretación
         console.print(f"\n[bold green]✅ Interpretación:[/bold green]")
         console.print(f"   Comando: [cyan]{interpreted_command.command}[/cyan]")
@@ -211,19 +219,29 @@ class PARACLI:
             console.print(f"   Argumentos: [yellow]{interpreted_command.args}[/yellow]")
         console.print(f"   Confianza: [{'green' if interpreted_command.confidence > 0.7 else 'yellow'}]{interpreted_command.confidence:.2f}[/]")
         console.print(f"   Razonamiento: [dim]{interpreted_command.reasoning}[/dim]")
+        
         if interpreted_command.confidence < 0.7:
             console.print(f"\n[bold yellow]⚠️  Confianza baja ({interpreted_command.confidence:.2f}). ¿Continuar?[/bold yellow]")
+        
         if not Confirm.ask(f"\n¿Ejecutar comando [cyan]{interpreted_command.command}[/cyan]?"):
             console.print("[yellow]Comando cancelado por el usuario.[/yellow]")
+            # APRENDIZAJE: Registrar que el usuario rechazó la interpretación
+            self._learn_from_rejected_interpretation(prompt, interpreted_command)
             return
+        
         commands_requiring_vault = ["classify", "analyze", "clean", "learn", "logs", "reclassify-all", "obsidian-vault", "obsidian-sync", "obsidian-backup", "obsidian-plugins", "obsidian-notes", "obsidian-search", "obsidian-graph", "obsidian-watch"]
         if interpreted_command.command in commands_requiring_vault:
             vault = self._require_vault()
             if not vault:
                 return
+        
         try:
             success = self._execute_interpreted_command(interpreted_command, additional_args)
             ai_engine.record_prompt_execution(prompt, interpreted_command, success)
+            
+            # APRENDIZAJE AUTOMÁTICO: Registrar el resultado para mejorar el modelo
+            self._learn_from_prompt_execution(prompt, interpreted_command, success)
+            
             if success:
                 console.print(f"\n[bold green]✅ Comando ejecutado exitosamente![/bold green]")
             else:
@@ -231,6 +249,10 @@ class PARACLI:
         except Exception as e:
             logger.error(f"Error ejecutando comando interpretado: {e}")
             ai_engine.record_prompt_execution(prompt, interpreted_command, False)
+            
+            # APRENDIZAJE: Registrar el error para mejorar el modelo
+            self._learn_from_prompt_error(prompt, interpreted_command, str(e))
+            
             console.print(f"\n[bold red]❌ Error: {e}[/bold red]")
     
     def _execute_interpreted_command(self, ai_command: AICommand, additional_args: list) -> bool:
@@ -500,6 +522,7 @@ class PARACLI:
         from rich.table import Table
         from collections import OrderedDict
         console.print(Panel("[bold blue]PARA CLI - Sistema de Gestión de Notas con AI[/bold blue]"))
+        
         # Comandos core (sin duplicados)
         core_table = Table(title="Comandos Core")
         core_table.add_column("Comando", style="cyan")
@@ -510,6 +533,7 @@ class PARACLI:
                 core_table.add_row(name, func.__doc__ or "")
                 core_seen.add(name)
         console.print(core_table)
+        
         # Comandos de plugins (sin duplicados)
         plugin_table = Table(title="Comandos de Plugins")
         plugin_table.add_column("Comando", style="magenta")
@@ -523,6 +547,7 @@ class PARACLI:
                     plugin_table.add_row(cmd['name'], ", ".join(cmd.get('aliases', [])), cmd.get('description', ""))
                     plugin_seen.add(key)
         console.print(plugin_table)
+        
         # Ejemplos de prompts AI (sin cambios)
         ai_table = Table(title="Ejemplos de Prompts AI")
         ai_table.add_column("Prompt", style="cyan")
@@ -533,8 +558,10 @@ class PARACLI:
         ai_table.add_row("limpiar vault", "clean")
         ai_table.add_row("aprende de mis clasificaciones", "learn review")
         console.print(ai_table)
+        
         console.print("\n[bold]Uso:[/bold] para <comando> [opciones] O para <prompt en lenguaje natural>")
         console.print("[bold]Ejemplos:[/bold]")
+        console.print("  para start                    # Migración completa automatizada")
         console.print("  para classify nota.md --plan")
         console.print("  para analyze vault/ --detailed")
         console.print("  para learn review --days 7")
@@ -542,6 +569,8 @@ class PARACLI:
         console.print("  para obsidian-vault info")
         console.print("  para re clasifica todas mis notas")
         console.print("  para muéstrame los plugins de obsidian")
+        console.print("\n[bold yellow]💡 También puedes usar prompts en lenguaje natural gracias a la IA integrada!\nEjemplo: para 'crea un backup', 'limpiar vault', 'muéstrame los plugins de obsidian'...\n[/bold yellow]")
+        console.print("\n[bold green]🚀 Comando principal: 'start' - Migración completa automatizada al sistema PARA[/bold green]")
     
     def cmd_version(self):
         """Muestra la versión."""
@@ -783,6 +812,334 @@ class PARACLI:
             print('No se encontró el archivo de log unificado (logs/para.log).')
         except Exception as e:
             print(f'Error leyendo el log: {e}')
+
+    def cmd_start(self, *args):
+        """Comando principal para iniciar la migración completa automatizada al sistema PARA."""
+        console.print(Panel("[bold blue]🚀 PARA System - Migración Automatizada[/bold blue]", expand=False))
+        
+        # Verificar vault
+        vault = self._require_vault()
+        if not vault:
+            return
+        
+        # Verificar IA
+        if not self._check_ai_status():
+            console.print("[bold red]Migración cancelada debido a problemas con la IA.[/bold red]")
+            return
+        
+        # Analizar el estado actual del vault
+        console.print("[yellow]🔍 Analizando estado actual del vault...[/yellow]")
+        from paralib.analyze_manager import AnalyzeManager
+        analyzer = AnalyzeManager()
+        vault_analysis = analyzer.analyze_vault_structure(str(vault))
+        
+        # Mostrar resumen del análisis
+        console.print(f"[green]📊 Análisis del vault:[/green]")
+        console.print(f"   📁 Total notas: {vault_analysis.get('total_notes', 0)}")
+        console.print(f"   📂 Notas sin clasificar: {vault_analysis.get('unclassified_notes', 0)}")
+        console.print(f"   🗂️ Estructura PARA actual: {vault_analysis.get('para_structure', 'No implementada')}")
+        
+        # Preguntar si continuar
+        if not Confirm.ask("\n¿Iniciar migración completa automatizada?"):
+            console.print("[yellow]Migración cancelada por el usuario.[/yellow]")
+            return
+        
+        # Iniciar proceso de migración
+        console.print("[bold green]🚀 Iniciando migración automatizada...[/bold green]")
+        
+        try:
+            # 1. Clasificar todas las notas sin clasificar
+            console.print("\n[bold]1️⃣ Clasificando notas sin organizar...[/bold]")
+            self._classify_unorganized_notes(vault)
+            
+            # 2. Crear estructura PARA si no existe
+            console.print("\n[bold]2️⃣ Creando estructura PARA...[/bold]")
+            self._create_para_structure(vault)
+            
+            # 3. Mover notas a sus categorías correspondientes
+            console.print("\n[bold]3️⃣ Moviendo notas a categorías PARA...[/bold]")
+            self._move_notes_to_para_structure(vault)
+            
+            # 4. Optimizar y limpiar
+            console.print("\n[bold]4️⃣ Optimizando estructura...[/bold]")
+            self._optimize_para_structure(vault)
+            
+            # 5. Generar reporte final
+            console.print("\n[bold]5️⃣ Generando reporte final...[/bold]")
+            self._generate_migration_report(vault)
+            
+            console.print("\n[bold green]✅ Migración completada exitosamente![/bold green]")
+            console.print("[green]🎯 Tu vault ahora está organizado según la metodología PARA.[/green]")
+            
+        except Exception as e:
+            console.print(f"[red]❌ Error durante la migración: {e}[/red]")
+            logger.error(f"Error en migración: {e}")
+    
+    def _classify_unorganized_notes(self, vault_path):
+        """Clasifica todas las notas sin organizar usando AI."""
+        from paralib.organizer import PARAOrganizer
+        from pathlib import Path
+        
+        organizer = PARAOrganizer()
+        vault = Path(vault_path)
+        
+        # Encontrar notas sin clasificar (fuera de estructura PARA)
+        unclassified_notes = []
+        for note_file in vault.rglob("*.md"):
+            if note_file.name != ".obsidian":
+                # Verificar si está en estructura PARA
+                relative_path = note_file.relative_to(vault)
+                if not any(para_dir in str(relative_path) for para_dir in ['00-inbox', '01-projects', '02-areas', '03-resources', '04-archive']):
+                    unclassified_notes.append(note_file)
+        
+        if not unclassified_notes:
+            console.print("[green]✅ No hay notas sin clasificar.[/green]")
+            return
+        
+        console.print(f"[yellow]📝 Clasificando {len(unclassified_notes)} notas...[/yellow]")
+        
+        for i, note_file in enumerate(unclassified_notes, 1):
+            console.print(f"[dim]Procesando {i}/{len(unclassified_notes)}: {note_file.name}[/dim]")
+            
+            try:
+                # Clasificar con AI
+                classification = organizer.classify_note_with_ai(str(note_file))
+                
+                # Aprender del resultado
+                self._learn_from_classification(note_file, classification)
+                
+                console.print(f"[green]✅ {note_file.name} → {classification.get('category', 'Unknown')}[/green]")
+                
+            except Exception as e:
+                console.print(f"[red]❌ Error clasificando {note_file.name}: {e}[/red]")
+                logger.error(f"Error clasificando {note_file}: {e}")
+    
+    def _create_para_structure(self, vault_path):
+        """Crea la estructura de directorios PARA si no existe."""
+        from pathlib import Path
+        
+        vault = Path(vault_path)
+        para_dirs = ['00-inbox', '01-projects', '02-areas', '03-resources', '04-archive']
+        
+        for dir_name in para_dirs:
+            dir_path = vault / dir_name
+            if not dir_path.exists():
+                dir_path.mkdir(exist_ok=True)
+                console.print(f"[green]📁 Creado: {dir_name}[/green]")
+            else:
+                console.print(f"[dim]📁 Ya existe: {dir_name}[/dim]")
+    
+    def _move_notes_to_para_structure(self, vault_path):
+        """Mueve las notas clasificadas a sus categorías PARA correspondientes."""
+        from paralib.organizer import PARAOrganizer
+        from pathlib import Path
+        import shutil
+        
+        organizer = PARAOrganizer()
+        vault = Path(vault_path)
+        
+        # Obtener clasificaciones de la base de datos
+        db = organizer.db
+        classifications = db.get_all_classifications()
+        
+        moved_count = 0
+        for classification in classifications:
+            note_path = Path(classification.get('note_path', ''))
+            category = classification.get('category', '')
+            
+            if not note_path.exists() or not category:
+                continue
+            
+            # Determinar directorio destino
+            target_dir = None
+            if category.lower() in ['project', 'projects']:
+                target_dir = vault / '01-projects'
+            elif category.lower() in ['area', 'areas']:
+                target_dir = vault / '02-areas'
+            elif category.lower() in ['resource', 'resources']:
+                target_dir = vault / '03-resources'
+            elif category.lower() in ['archive']:
+                target_dir = vault / '04-archive'
+            else:
+                target_dir = vault / '00-inbox'
+            
+            # Mover archivo
+            if note_path.parent != target_dir:
+                target_path = target_dir / note_path.name
+                if not target_path.exists():
+                    shutil.move(str(note_path), str(target_path))
+                    moved_count += 1
+                    console.print(f"[green]📄 Movido: {note_path.name} → {target_dir.name}[/green]")
+        
+        console.print(f"[green]✅ {moved_count} notas movidas a estructura PARA.[/green]")
+    
+    def _optimize_para_structure(self, vault_path):
+        """Optimiza la estructura PARA (elimina duplicados, mejora nombres, etc.)."""
+        from paralib.organizer import PARAOrganizer
+        
+        organizer = PARAOrganizer()
+        
+        # Ejecutar limpieza y optimización
+        organizer.optimize_para_structure(str(vault_path))
+        
+        console.print("[green]✅ Estructura PARA optimizada.[/green]")
+    
+    def _generate_migration_report(self, vault_path):
+        """Genera un reporte final de la migración."""
+        from paralib.analyze_manager import AnalyzeManager
+        from datetime import datetime
+        
+        analyzer = AnalyzeManager()
+        final_analysis = analyzer.analyze_vault_structure(str(vault_path))
+        
+        console.print("\n[bold blue]📊 Reporte de Migración[/bold blue]")
+        console.print(f"   📁 Total notas: {final_analysis.get('total_notes', 0)}")
+        console.print(f"   📂 Notas clasificadas: {final_analysis.get('classified_notes', 0)}")
+        console.print(f"   🗂️ Estructura PARA: {final_analysis.get('para_structure', 'Implementada')}")
+        console.print(f"   📅 Fecha: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    
+    def _learn_from_classification(self, note_path, classification):
+        """Aprende de cada clasificación para mejorar el modelo."""
+        try:
+            learning_system = self._get_learning_system()
+            learning_system.learn_from_classification(classification)
+            
+            # Registrar para análisis de prompts AI
+            if hasattr(classification, 'original_prompt'):
+                ai_engine.record_prompt_execution(
+                    classification.original_prompt,
+                    classification,
+                    success=True
+                )
+                
+        except Exception as e:
+            logger.warning(f"Error registrando aprendizaje: {e}")
+
+    def _get_learning_system(self):
+        """Inicializa el sistema de aprendizaje de forma perezosa."""
+        if self.learning_system is None:
+            from paralib.learning_system import PARA_Learning_System
+            vault_path = self._require_vault()
+            if not vault_path:
+                # Usar un path por defecto si no hay vault para evitar fallos
+                vault_path = Path.cwd() / "default_learning"
+            self.learning_system = PARA_Learning_System(vault_path=vault_path)
+        return self.learning_system
+
+    def _check_ai_status(self, silent=False) -> bool:
+        """Verifica la conexión con Ollama y la existencia del modelo. Devuelve True si todo está OK."""
+        model_name = self.config.get("ollama_model")
+        if not model_name:
+            if not silent:
+                console.print("[red]❌ IA (Ollama): Modelo no configurado en 'para_config.default.json'.[/red]")
+            return False
+        
+        try:
+            if not silent:
+                console.print(f"🔎 Verificando estado de la IA (Modelo: {model_name})...", end="")
+            import ollama
+            ollama.show(model_name)
+            if not silent:
+                console.print("[green]✅ OK[/green]")
+            return True
+        except Exception as e:
+            if not silent:
+                console.print("[red]❌ Error[/red]")
+                if "404" in str(e):
+                     console.print(f"   [dim]Modelo '{model_name}' no encontrado en el servidor Ollama.[/dim]")
+                     console.print(f"   [dim]Ejecuta: [bold]ollama pull {model_name}[/bold][/dim]")
+                else:
+                    console.print("   [dim]No se pudo conectar al servidor Ollama.[/dim]")
+                    console.print("   [dim]Asegúrate de que Ollama esté corriendo.[/dim]")
+            return False
+
+    def _learn_from_failed_prompt(self, prompt: str, error: str, available_commands: list):
+        """Aprende de prompts que no se pudieron interpretar."""
+        try:
+            learning_system = self._get_learning_system()
+            learning_system.record_command_execution(
+                command="failed_prompt",
+                args=[prompt],
+                success=False,
+                confidence=0.0,
+                reasoning=f"Prompt no interpretado: {error}",
+                error=error
+            )
+            
+            # Registrar en el sistema de AI para mejorar la interpretación
+            ai_engine.register_intent_example(
+                prompt=prompt,
+                command="help",
+                args=[],
+                description="Prompt no interpretado - mostrar ayuda"
+            )
+            
+            logger.info(f"📚 Aprendizaje registrado de prompt fallido: {prompt}")
+            
+        except Exception as e:
+            logger.warning(f"⚠️ Error registrando aprendizaje de prompt fallido: {e}")
+    
+    def _learn_from_rejected_interpretation(self, prompt: str, interpreted_command):
+        """Aprende cuando el usuario rechaza una interpretación."""
+        try:
+            learning_system = self._get_learning_system()
+            learning_system.record_command_execution(
+                command=interpreted_command.command,
+                args=interpreted_command.args,
+                success=False,
+                confidence=interpreted_command.confidence,
+                reasoning=f"Usuario rechazó interpretación: {interpreted_command.reasoning}",
+                error="Usuario rechazó la interpretación"
+            )
+            
+            logger.info(f"📚 Aprendizaje registrado de interpretación rechazada: {prompt}")
+            
+        except Exception as e:
+            logger.warning(f"⚠️ Error registrando aprendizaje de interpretación rechazada: {e}")
+    
+    def _learn_from_prompt_execution(self, prompt: str, interpreted_command, success: bool):
+        """Aprende del resultado de la ejecución de un prompt."""
+        try:
+            learning_system = self._get_learning_system()
+            learning_system.record_command_execution(
+                command=interpreted_command.command,
+                args=interpreted_command.args,
+                success=success,
+                confidence=interpreted_command.confidence,
+                reasoning=interpreted_command.reasoning
+            )
+            
+            # Si fue exitoso, registrar como ejemplo positivo
+            if success:
+                ai_engine.register_intent_example(
+                    prompt=prompt,
+                    command=interpreted_command.command,
+                    args=interpreted_command.args,
+                    description=f"Prompt exitoso: {interpreted_command.reasoning}"
+                )
+            
+            logger.info(f"📚 Aprendizaje registrado de prompt ejecutado: {prompt} -> {success}")
+            
+        except Exception as e:
+            logger.warning(f"⚠️ Error registrando aprendizaje de prompt ejecutado: {e}")
+    
+    def _learn_from_prompt_error(self, prompt: str, interpreted_command, error: str):
+        """Aprende de errores en la ejecución de prompts."""
+        try:
+            learning_system = self._get_learning_system()
+            learning_system.record_command_execution(
+                command=interpreted_command.command,
+                args=interpreted_command.args,
+                success=False,
+                confidence=interpreted_command.confidence,
+                reasoning=interpreted_command.reasoning,
+                error=error
+            )
+            
+            logger.info(f"📚 Aprendizaje registrado de error en prompt: {prompt} -> {error}")
+            
+        except Exception as e:
+            logger.warning(f"⚠️ Error registrando aprendizaje de error en prompt: {e}")
 
 def main():
     """Función principal."""
