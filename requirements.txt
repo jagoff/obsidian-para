@@ -1,16 +1,33 @@
-# Requisitos para el sistema PARA
-# Instala con: pip install -r requirements.txt
-# Mantén actualizado este archivo si agregas nuevas dependencias
+# PARA System Core Dependencies (Backend only)
+# Next.js 14 Web Dashboard is now in web/ directory
 
-typer>=0.16.0
-click>=8.1.7
-rich-click>=1.8.9
-rich==13.7.1
+# Core dependencies
+rich>=13.0.0
+requests>=2.31.0
+watchdog>=3.0.0
+pathlib2>=2.3.7
+
+# AI and ML
+openai>=1.0.0
+chromadb>=0.4.0
+sentence-transformers>=2.2.0
+
+# Data processing
+pandas>=2.0.0
+numpy>=1.24.0
+
+# CLI and UI
+click>=8.1.0
 prompt-toolkit>=3.0.0
-sentence-transformers==2.7.0
-chromadb==0.4.24
-numpy<2.0
-ollama>=0.2.0
-PyYAML>=6.0
-streamlit>=1.35.0
-plotly>=5.20.0
+
+# File handling
+python-magic>=0.4.27
+python-magic-bin>=0.4.14
+
+# Logging and monitoring
+structlog>=23.0.0
+
+# Development (optional)
+pytest>=7.0.0
+black>=23.0.0
+flake8>=6.0.0

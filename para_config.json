@@ -1,0 +1,46 @@
+{
+  "version": "2.0",
+  "system": {
+    "name": "PARA System",
+    "description": "Sistema de organización de Obsidian usando IA y metodología PARA",
+    "debug_level": "INFO",
+    "log_level": "INFO"
+  },
+  "ai": {
+    "engine": "ollama",
+    "model": "llama3.2:3b",
+    "temperature": 0.7,
+    "max_tokens": 2048,
+    "enabled": true
+  },
+  "vault": {
+    "auto_detect": true,
+    "default_path": null,
+    "structure": {
+      "projects": "01-Projects",
+      "areas": "02-Areas", 
+      "resources": "03-Resources",
+      "archive": "04-Archive"
+    }
+  },
+  "classification": {
+    "confidence_threshold": 0.7,
+    "auto_balance": true,
+    "exclude_patterns": [
+      "*.tmp",
+      "*.bak",
+      ".DS_Store",
+      "Thumbs.db"
+    ]
+  },
+  "backup": {
+    "auto_backup": true,
+    "max_backups": 10,
+    "backup_interval_hours": 24
+  },
+  "ui": {
+    "theme": "default",
+    "show_progress": true,
+    "interactive_mode": true
+  }
+}

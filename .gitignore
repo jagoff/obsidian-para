@@ -21,7 +21,7 @@ wheels/
 *.egg
 MANIFEST
 
-# Virtual Environment
+# Virtual environments
 venv/
 env/
 ENV/
@@ -45,19 +45,51 @@ ehthumbs.db
 Thumbs.db
 
 # PARA System specific
-para_chroma_db/
-backups/
+.para_db/
+.para_cache.json
+.para_vault_cache.json
 logs/
+backups/
+themes/
+learning/
 *.log
-para_config.json
+*.sqlite
+*.sqlite3
 
-# Ollama models (optional - uncomment if you don't want to track models)
-# .ollama/
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Configuration files with sensitive data
+.env
+.env.local
+.env.production
+config.local.json
 
 # Temporary files
 *.tmp
 *.temp
 *.bak
+*.backup
+
+# Node.js (for web dashboard)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.next/
+out/
+
+# Testing
+.coverage
+.pytest_cache/
+.tox/
+htmlcov/
+
+# Documentation builds
+docs/_build/
+site/
 
 # Jupyter Notebook
 .ipynb_checkpoints
@@ -77,15 +109,6 @@ celerybeat.pid
 
 # SageMath parsed files
 *.sage.py
-
-# Environments
-.env
-.venv
-env/
-venv/
-ENV/
-env.bak/
-venv.bak/
 
 # Spyder project settings
 .spyderproject

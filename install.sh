@@ -265,6 +265,19 @@ show_completion() {
     echo
 }
 
+# Ejecutar QA automático
+print_step "🧪 Ejecutando QA automático..."
+if [ -f "qa_auto.py" ]; then
+    python3 qa_auto.py
+    if [ $? -eq 0 ]; then
+        print_success "QA automático completado"
+    else
+        print_warning "QA automático encontró algunos problemas"
+    fi
+else
+    print_info "Script de QA no encontrado"
+fi
+
 # Ejecutar setup de Python si está disponible
 if command -v python3 >/dev/null 2>&1; then
     print_step "🔧 Ejecutando setup de Python..."
